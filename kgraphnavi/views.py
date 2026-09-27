@@ -17,6 +17,7 @@ from flask import current_app, request, render_template, send_from_directory, Re
 from .render_utils import get_highest_priority_item, get_localname
 from .app import error
 from .makehtml import make_html
+from .facets import request_params
 from .errors import KGraphError, SparqlError      # 作成した例外クラス
 logger = logging.getLogger(__name__)
 
@@ -122,11 +123,8 @@ def init_app(app):
         class_uri = request.args.get("class")
         if not class_uri:
             return error("classパラメタがない", "/collection?class=xxx と指定してください",)
-        params = {
-            key: value
-            for key, value in request.args.items()
-            if key != "class"
-        }
+        # class もコレクションを定義するパラメータとして渡す
+        params = request_params(request.args, path=request.path)
         # RDFクラスに対応するPage名を取得する
         page_name = "MountainCollection"
         if page_name is None:

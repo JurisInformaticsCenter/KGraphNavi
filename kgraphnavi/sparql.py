@@ -62,7 +62,8 @@ def substitute_params(sparql, params):
     SPARQLに現れない $key は無視する（URLのパラメータがすべて渡されるため）。
     """
     for key, value in (params or {}).items():
-        if value is None:
+        # None や、予約キー（_facets など）の辞書・リストは埋め込まない
+        if value is None or not isinstance(value, (str, int, float)):
             continue
         pattern = re.compile(r"\$" + re.escape(str(key)) + r"(?![\w])")
         if not pattern.search(sparql):

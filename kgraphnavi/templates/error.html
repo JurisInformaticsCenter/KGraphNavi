@@ -2,10 +2,10 @@
 <html lang="ja">
 <head>
   <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
-  <title>Error</title>
+  <title>{{ title or message_type or "Error" }}</title>
 </head>
 <body>
-  <h1>{{ message_type }}</h1>
+  <h1>{{ message_type or title or "Error" }}</h1>
     <p>{{ message }}</p>
 </body>
 </html>

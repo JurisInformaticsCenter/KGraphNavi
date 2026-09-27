@@ -40,17 +40,16 @@
         ?uri rdf:type dbo:Mountain .
         ?uri dct:subject dbc:Mountains_of_the_Alps .
       }
-    tabs:
-      - label: list
-        gadget:
-            - mountain_list
-      - label: facet
-        gadget:
-            - mountain_facet
+    gadget:
+        - mountain_facet
+        - mountain_range_facet
+        - mountain_list
 -   def: gadget
     name: mountain_list
+    title: 山の一覧
     get:
         type: sparql
+        page_size: 20
         src: |
             SELECT DISTINCT ?entity ?label ?country ?elevation ?thumbnail
             WHERE {
@@ -89,11 +88,28 @@
           width: 120
 -   def: gadget
     name: mountain_facet
+    height: 240
     get:
       type: facet
       name: country
+      label: 国
       predicate: http://dbpedia.org/ontology/country
+      value_type: iri
       lang: en
+      limit: 30
+    show:
+      type: facet
+-   def: gadget
+    name: mountain_range_facet
+    height: 240
+    get:
+      type: facet
+      name: range
+      label: 山脈
+      predicate: dbo:mountainRange
+      value_type: iri
+      lang: en
+      limit: 30
     show:
       type: facet
 -   def: page

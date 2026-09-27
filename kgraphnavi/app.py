@@ -18,6 +18,7 @@
 """
 import os
 import re
+from html import escape as html_escape
 from pathlib import Path
 import argparse
 import logging
@@ -30,6 +31,14 @@ from .sparql import SPARQL
 from .collection import Collection
 from .errors import ConfigError, GadgetError, ShowError
 from .terms import predicate_term
+from .facets import (
+    facet_selection,
+    page_number,
+    render_value_facet,
+    render_conditions,
+    render_pager,
+    TAB_PARAM,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -136,12 +145,38 @@ def prepare_columns(content, columns):
         result.append(col)
     return result
 
+# 1つのガジェットで取得する行数の既定の上限（設定 max_rows で変更可）
+DEFAULT_MAX_ROWS = 5000
+
+_HAS_LIMIT = re.compile(r"\b(LIMIT|OFFSET)\s+\d+\s*(\b(LIMIT|OFFSET)\s+\d+\s*)?$", re.IGNORECASE)
+_TRAILING_VALUES = re.compile(r"\bVALUES\b[^{}]*\{[^{}]*\}\s*$", re.IGNORECASE)
+
+
+def limit_rows(query, max_rows):
+    """クエリの末尾に LIMIT がなければ、max_rows+1 行までに制限する。
+
+    +1 行取得するのは、上限を超えたかどうかを判定するため。
+    末尾に LIMIT/OFFSET や VALUES がある場合は変更しない。
+    """
+    if not max_rows:
+        return query
+    stripped = query.rstrip()
+    if _HAS_LIMIT.search(stripped) or _TRAILING_VALUES.search(stripped):
+        return query
+    return f"{stripped}\nLIMIT {int(max_rows) + 1}"
+
+
+class Rows(list):
+    """SPARQLの結果。truncated が True なら上限で打ち切った"""
+    truncated = False
+
+
 class GadgetNotFound(Exception):
     pass
 
 class Gadget:
     """Gadget"""
-    __slots__ = ("extract_method", "show_method", "height", "sparql_client")
+    __slots__ = ("extract_method", "show_method", "height", "sparql_client", "title")
     EXTRACTORS = {
         "sparql": "extract_sparql",
         "facet": "extract_facet",
@@ -160,12 +195,18 @@ class Gadget:
     def __repr__(self):
         return f'Config(extract={self.extract_method!r}, show={self.show_method!r})'
 
-    def __init__(self, config_get, config_show, height):
-        """Gadgetの生成。get内容の辞書と、show内容の辞書、gadgetの高さを受け取る"""
+    def __init__(self, config_get, config_show, height, title=None):
+        """Gadgetの生成。get内容の辞書と、show内容の辞書、gadgetの高さ、見出しを受け取る"""
         self.extract_method = config_get
         self.show_method = config_show
         self.height = height
         self.sparql_client = None # あとで設定
+        # 見出し。省略時はファセットなら label、それ以外はガジェット名
+        self.title = title
+
+    @property
+    def is_facet(self):
+        return (self.extract_method or {}).get("type") == "facet"
 
     def _expand_snippet(self, query, application):
         """SPARQL中の$snippetを展開する。"""
@@ -214,11 +255,12 @@ class Gadget:
     COLLECTION_PLACEHOLDER = "$collection"
     _WHERE_OPEN = re.compile(r"\bWHERE\s*\{", re.IGNORECASE)
 
-    def _connect_collection(self, query, collection):
+    def _connect_collection(self, query, collection, limit=None, offset=None):
         """GadgetのSPARQLにCollectionの対象を接続する。
 
         SPARQL中の $collection を、?entity を束縛する副問い合わせに置き換える。
         $collection がなければ、最初の WHERE { の直後に挿入する。
+        limit / offset はページ送り用（コレクションの要素をその範囲に限る）。
         """
         if collection is None:
             if self.COLLECTION_PLACEHOLDER in query:
@@ -226,7 +268,7 @@ class Gadget:
                     "$collection を使うガジェットはコレクションのページで使ってください"
                 )
             return query
-        subquery = collection.to_subquery("?entity")
+        subquery = collection.to_subquery("?entity", limit=limit, offset=offset)
         if self.COLLECTION_PLACEHOLDER in query:
             return query.replace(self.COLLECTION_PLACEHOLDER, subquery)
         match = self._WHERE_OPEN.search(query)
@@ -237,13 +279,14 @@ class Gadget:
         return query[:match.end()] + "\n" + subquery + "\n" + query[match.end():]
 
 
+    @property
+    def page_size(self):
+        """ページ送りの1ページあたりの件数（get.page_size）。指定がなければ None"""
+        size = self.extract_method.get("page_size")
+        return int(size) if size else None
+
     def extract_sparql(self, uri, application, params=None, collection=None):
         """SPARQLを実行してデータを取得する。"""
-        logger.info(
-            "extract_sparql CALLED: uri=%r collection=%r",
-            uri,
-            collection,
-        )
         params = dict(params or {})
         if uri:
             params["uri"] = uri
@@ -255,12 +298,21 @@ class Gadget:
         )
         query = self.extract_method.get("src", "")
         query = self._expand_snippet(query, application)
-        query = self._connect_collection(query, collection)
+        limit = offset = None
+        if collection is not None and self.page_size:
+            limit = self.page_size
+            offset = (page_number(params) - 1) * self.page_size
+        query = self._connect_collection(query, collection, limit=limit, offset=offset)
+        max_rows = getattr(application, "max_rows", DEFAULT_MAX_ROWS) if application else DEFAULT_MAX_ROWS
+        query = limit_rows(query, max_rows)
         logger.info(
             "extract_sparql: final query=\n%s",
             query,
         )
-        result = self.sparql_client.query(query, params=params)
+        result = Rows(self.sparql_client.query(query, params=params) or [])
+        if max_rows and len(result) > max_rows:
+            del result[max_rows:]
+            result.truncated = True
         return self._apply_values(result, uri)
 
     def extract_list(self, uri, application, params=None, collection=None):
@@ -313,7 +365,10 @@ class Gadget:
         return application.apply_collection_filters(collection, params=params, exclude=exclude)
 
     def extract_facet(self, uri, application, params=None, collection=None):
-        """CollectionからFacet候補を取得する。"""
+        """CollectionからFacet候補を取得する。
+
+        返り値は描画用の辞書（候補・選択中の値・パラメータ）。
+        """
         if application is None:
             raise GadgetError("facet extractにはapplicationが必要です")
         facet_name = self.extract_method.get("name")
@@ -324,6 +379,7 @@ class Gadget:
             raise GadgetError("facet extractにはpredicateが必要です")
         if collection is None:
             raise GadgetError("facet extractにはCollectionが必要です")
+        params = params or {}
         # 現在表示しているFacet自身の条件だけ除外して、
         # 他のFacet条件は維持する。
         collection = application.apply_collection_filters(
@@ -331,12 +387,24 @@ class Gadget:
             params=params,
             exclude={facet_name},
         )
-        return collection.get_facets(
+        candidates = collection.get_facets(
             predicate,
             label_predicate=self.extract_method.get("label_predicate", "rdfs:label"),
             lang=self.extract_method.get("lang"),
             limit=self.extract_method.get("limit"),
         )
+        values, _ranges = facet_selection(params)
+        selected = list(values.get(facet_name, []))
+        legacy = params.get(facet_name)
+        if isinstance(legacy, str) and legacy and legacy not in selected:
+            selected.append(legacy)
+        return {
+            "name": facet_name,
+            "label": self.extract_method.get("label") or facet_name,
+            "candidates": candidates,
+            "selected": selected,
+            "params": params,
+        }
 
     def show(self, content):
         """取得したデータを表示する。"""
@@ -354,6 +422,8 @@ class Gadget:
                 kwargs["value_width"] = self.show_method.get("value_width")
             return shower(content, columns, **kwargs,)
         if show_type == "facet":
+            if isinstance(content, dict):
+                return render_value_facet(content, height=self.height)
             return show_facet(
                 content,
                 self.show_method,
@@ -449,7 +519,7 @@ RETRIEVE_FORM = '<form action="/search" method="GET"><div class="search_wrap"><i
 
 class Application:
     """Application"""
-    __slots__ = ("pages", "gadgetset", "title", "describe", "query_samples", "resource_samples", "collection_samples", "adjacent", "priority_list", "focus", "navi", "sparql_client", "data_dir")
+    __slots__ = ("pages", "gadgetset", "title", "describe", "query_samples", "resource_samples", "collection_samples", "adjacent", "priority_list", "focus", "navi", "sparql_client", "data_dir", "max_rows")
     def __repr__(self):
         return f'Application={self.pages!r}, {self.gadgetset}'
 
@@ -467,6 +537,7 @@ class Application:
         self.navi = f'<nav class="navbar"><ul><li class="nav_left"><a href="{frontend_base_url}">{self.title}</a></li><li class="nav_right search_item">{RETRIEVE_FORM}</li></ul></nav>'
         self.sparql_client = sparql_client
         self.data_dir = Path(data_dir) if data_dir else None
+        self.max_rows = DEFAULT_MAX_ROWS
 
     def resolve_gadget(self, spec):
         if m := re.match(r'(.*)\((.*)\)', spec):
@@ -511,12 +582,54 @@ class Application:
         )
         # 表示
         gadget_body = gadget.show(content)
+        if getattr(content, "truncated", False):
+            gadget_body += (
+                '<p class="gadget-notice">表示件数の上限'
+                f'（{getattr(self, "max_rows", DEFAULT_MAX_ROWS):,} 行）に達したため、'
+                '以降は省略しました。</p>'
+            )
+        page_size = getattr(gadget, "page_size", None)
+        if collection is not None and page_size:
+            pager = render_pager(params, page_number(params), page_size, collection.count())
+            gadget_body = pager + gadget_body + pager
+        title = self.gadget_title(gadget_name, gadget)
         return f"""
         <section class="gadget">
-        <h2 class="gadget-title">{gadget_name}</h2>
+        <h2 class="gadget-title">{html_escape(title)}</h2>
         {gadget_body}
         </section>
         """
+
+    @staticmethod
+    def gadget_title(gadget_name, gadget):
+        title = getattr(gadget, "title", None)
+        if title:
+            return str(title)
+        extract_method = getattr(gadget, "extract_method", None) or {}
+        if extract_method.get("type") == "facet" and extract_method.get("label"):
+            return str(extract_method["label"])
+        return gadget_name
+
+    def make_gadgets(self, gadget_names, uri, params=None, collection=None):
+        """ガジェットを並べたHTMLを返す。
+
+        ファセットと、それ以外のガジェットの両方があれば、ファセットを左の列に置く。
+        """
+        facets, others = [], []
+        for gadget_name in gadget_names:
+            _name, _path, gadget = self.resolve_gadget(gadget_name)
+            (facets if getattr(gadget, "is_facet", False) else others).append(gadget_name)
+        render = lambda names: "\n".join(
+            self.make_gadget(name, uri, params=params, collection=collection) for name in names
+        )
+        if not facets or not others:
+            return render(gadget_names)
+        return (
+            '<div class="collection-layout">'
+            f'<aside class="facet-column">{render(facets)}</aside>'
+            f'<div class="main-column">{render(others)}</div>'
+            '</div>'
+        )
 
 
     def make_page_tabs(self, page, uri, tabs, params=None, collection=None):
@@ -531,17 +644,24 @@ class Application:
             tabs,
             collection,
         )
+        try:
+            active = int(params.get(TAB_PARAM, 0))
+        except (TypeError, ValueError):
+            active = 0
+        if not 0 <= active < len(tabs):
+            active = 0
         for i, tab in enumerate(tabs):
             tab_id = f"tab_{page}_{i}"
+            current = " active" if i == active else ""
             tab_buttons.append(
                 f'<button type="button" '
-                f'class="kg-tab-button" '
-                f'data-tab="{tab_id}">'
-                f'{tab["label"]}'
+                f'class="kg-tab-button{current}" '
+                f'data-tab="{tab_id}" data-index="{i}">'
+                f'{html_escape(str(tab["label"]))}'
                 f'</button>'
             )
-            gadget_html = "\n".join(self.make_gadget(gadget_name, uri, params=params, collection=collection) for gadget_name in tab["gadget"])
-            display = "" if i == 0 else "display:none;"
+            gadget_html = self.make_gadgets(tab["gadget"], uri, params=params, collection=collection)
+            display = "" if i == active else "display:none;"
             tab_bodies.append(
                 f'<div id="{tab_id}" '
                 f'class="kg-tab-content" '
@@ -561,6 +681,22 @@ class Application:
                         content.style.display =
                             content.id === target ? "" : "none";
                     });
+                buttons.forEach(function (b) { b.classList.toggle("active", b === button); });
+                // 選んだタブを URL とフォームに残し、再読み込みや絞り込みの後も同じタブを表示する
+                const index = button.dataset.index;
+                const url = new URL(window.location.href);
+                url.searchParams.set("tab", index);
+                window.history.replaceState(null, "", url);
+                document.querySelectorAll("form.facet").forEach(function (form) {
+                    let input = form.querySelector('input[name="tab"]');
+                    if (!input) {
+                        input = document.createElement("input");
+                        input.type = "hidden";
+                        input.name = "tab";
+                        form.appendChild(input);
+                    }
+                    input.value = index;
+                });
             });
         });
     });
@@ -636,11 +772,25 @@ class Application:
             "collection: query=%r",
             collection.get_query() if collection is not None else None,
         )
+        header = []
+        if collection is not None:
+            header = [self.make_collection_header(collection, params)]
         tabs = page_def.get("tabs")
         if not tabs:
             gadget_list = page_def["gadget"]
-            return [self.make_gadget(gadget_name, uri, params=params, collection=collection) for gadget_name in gadget_list]
-        return self.make_page_tabs(page, uri, tabs, params=params, collection=collection)
+            if collection is None:
+                return [self.make_gadget(gadget_name, uri, params=params, collection=collection) for gadget_name in gadget_list]
+            return header + [self.make_gadgets(gadget_list, uri, params=params, collection=collection)]
+        return header + self.make_page_tabs(page, uri, tabs, params=params, collection=collection)
+
+    def make_collection_header(self, collection, params):
+        """コレクションのページの先頭に、件数と現在の絞り込み条件を表示する。"""
+        definitions = {}
+        for gadget in self.gadgetset.values():
+            extract_method = getattr(gadget, "extract_method", {}) or {}
+            if extract_method.get("type") == "facet" and extract_method.get("name"):
+                definitions[extract_method["name"]] = extract_method
+        return render_conditions(params, definitions, count=collection.count())
 
     def get_facet_definition(self, name):
         """nameに対応するfacet Gadgetの定義を返す。"""
@@ -690,7 +840,48 @@ class Application:
                 value_type=facet.get("value_type", "auto"),
                 name=name,
             )
+            applied.add(name)
+        # f.<name>=値（複数値は OR）、f.<name>.min / .max（範囲）
+        values, ranges = facet_selection(params)
+        for name, selected in values.items():
+            if name in excluded or name in applied or not selected:
+                continue
+            facet = self._facet_for(name)
+            if facet is None or facet.get("kind", "value") != "value":
+                continue
+            result = result.filter(
+                facet["predicate"],
+                selected,
+                value_type=facet.get("value_type", "auto"),
+                name=name,
+            )
+            applied.add(name)
+        for name, bounds in ranges.items():
+            if name in excluded or name in applied:
+                continue
+            facet = self._facet_for(name)
+            if facet is None or facet.get("kind") != "range":
+                continue
+            datatype = facet.get("datatype")
+            if not datatype:
+                raise GadgetError(f"facet({name})にdatatypeがありません")
+            result = result.filter_range(
+                facet["predicate"],
+                datatype,
+                bounds.get("min"),
+                bounds.get("max"),
+                unit=facet.get("unit"),
+                name=name,
+            )
+            applied.add(name)
         return result
+
+    def _facet_for(self, name):
+        """ファセット定義を返す。predicate がなければエラー、未定義ならNone"""
+        facet = self.get_facet_definition(name)
+        if facet is not None and not facet.get("predicate"):
+            raise GadgetError(f"facet({name})にpredicateがありません")
+        return facet
 
     def get_adjacent_graph(self, name, edge, direction):
         if name not in self.adjacent:
@@ -836,6 +1027,7 @@ def setconfig(config, base_dir=None):
         "sparql_endpoint",
         "frontend_base_url",
         "data_dir",
+        "max_rows",
     }
     PAGE_KEYS = {
         "def",
@@ -848,6 +1040,7 @@ def setconfig(config, base_dir=None):
     GADGET_KEYS = {
         "def",
         "name",
+        "title", # 見出し（省略時はガジェット名、ファセットは get.label）
         "height",
         "get",
         "show",
@@ -860,6 +1053,7 @@ def setconfig(config, base_dir=None):
     sparql_endpoint = None
     frontend_base_url = None
     data_dir = None
+    max_rows = DEFAULT_MAX_ROWS
     label_predicate = None
     prefixes = {}
     query_samples = []
@@ -905,6 +1099,11 @@ def setconfig(config, base_dir=None):
                 frontend_base_url = config["frontend_base_url"]
             if "data_dir" in config:
                 data_dir = resolve_dir(config["data_dir"], base_dir)
+            if "max_rows" in config:
+                try:
+                    max_rows = int(config["max_rows"])
+                except (TypeError, ValueError) as e:
+                    raise ConfigError(f"max_rowsは整数で指定してください: {config['max_rows']!r}") from e
         elif deftype == "page": # page定義
             unknown = set(config) - PAGE_KEYS
             if unknown:
@@ -933,6 +1132,7 @@ def setconfig(config, base_dir=None):
                 config_get=config["get"],
                 config_show=config["show"],
                 height=height,
+                title=config.get("title"),
             )
         else: # 未知のdef
             raise ConfigError(f"未知のdef: {deftype!r}(page または gadget を指定してください)")
@@ -952,6 +1152,7 @@ def setconfig(config, base_dir=None):
         "prefixes": prefixes,
         "frontend_base_url": frontend_base_url,
         "data_dir": data_dir,
+        "max_rows": max_rows,
     }
 
 
@@ -1026,7 +1227,7 @@ def build_application(
     # Gadget に sparql_client を渡す
     for gadget in cfg["gadgetset"].values():
         gadget.sparql_client = sparql_client
-    return Application(
+    application = Application(
         frontend_base_url,
         cfg["pages"],
         cfg["gadgetset"],
@@ -1039,6 +1240,8 @@ def build_application(
         sparql_client,
         data_dir,
     )
+    application.max_rows = cfg["max_rows"]
+    return application
 
 
 def create_app_from_env():

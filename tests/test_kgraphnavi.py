@@ -70,6 +70,10 @@ class DummyApplication:
     apply_collection_filters = Application.apply_collection_filters
     make_page = Application.make_page
     make_page_tabs = Application.make_page_tabs
+    make_collection_header = Application.make_collection_header
+    make_gadgets = Application.make_gadgets
+    resolve_gadget = Application.resolve_gadget
+    _facet_for = Application._facet_for
 
 
 @pytest.fixture
@@ -565,7 +569,7 @@ def test_extract_facet_gets_facets_from_collection():
         collection=collection,
     )
 
-    assert result == [
+    assert result["candidates"] == [
         {
             "value": "http://example.org/Japan",
             "label": "Japan",
@@ -942,7 +946,7 @@ def test_facet_gadget_end_to_end(application):
         collection=collection,
     )
 
-    assert content == [
+    assert content["candidates"] == [
         {
             "value": "http://example.org/Japan",
             "label": "Japan",
@@ -1025,7 +1029,7 @@ def test_facet_gadget_applies_other_facet_filters(application):
         collection=collection,
     )
 
-    assert content == [
+    assert content["candidates"] == [
         {
             "value": "http://example.org/Japan",
             "label": "Japan",

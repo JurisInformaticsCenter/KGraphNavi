@@ -268,11 +268,18 @@ class Collection:
             f"  WHERE {{\n{_indent(body)}\n  }}\n}}"
         )
 
-    def to_subquery(self, var="?entity"):
-        """ガジェットのSPARQLに埋め込む副問い合わせを返す。var だけを外に出す。"""
-        if var == "?uri":
-            return f"{{ SELECT DISTINCT ?uri\n  WHERE {{\n{_indent(self._pattern())}\n  }}\n}}"
-        return self._scoped(var, self._pattern())
+    def to_subquery(self, var="?entity", limit=None, offset=None):
+        """ガジェットのSPARQLに埋め込む副問い合わせを返す。var だけを外に出す。
+
+        limit / offset を指定すると、URI の順に並べたうえでその範囲だけを返す（ページ送り用）。
+        """
+        head = "SELECT DISTINCT ?uri" if var == "?uri" else f"SELECT DISTINCT (?uri AS {var})"
+        modifiers = ""
+        if limit is not None:
+            modifiers = f"\n  ORDER BY ?uri\n  LIMIT {int(limit)}"
+            if offset:
+                modifiers += f"\n  OFFSET {int(offset)}"
+        return f"{{ {head}\n  WHERE {{\n{_indent(self._pattern())}\n  }}{modifiers}\n}}"
 
     def get_condition(self, variable="?entity"):
         """（互換用）to_subquery() と同じ"""
@@ -346,11 +353,14 @@ class Collection:
         ]
 
     def count(self):
-        """Collectionに含まれるResourceの数を返す。"""
+        """Collectionに含まれるResourceの数を返す（結果は覚えておき、2回目以降は再計算しない）。"""
+        cached = getattr(self, "_count_cache", None)
+        if cached is not None:
+            return cached
         results = self._run(self.count_query())
-        if not results:
-            return 0
-        return int(results[0]["count"]["value"])
+        count = int(results[0]["count"]["value"]) if results else 0
+        self._count_cache = count
+        return count
 
     def get_facets(self, predicate, *, exclude=None, label_predicate="rdfs:label", lang=None, limit=None):
         """Facet候補（値・ラベル・件数・値の種類）を件数の多い順に返す。
