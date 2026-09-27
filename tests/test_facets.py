@@ -410,3 +410,131 @@ def test_paged_gadget_disables_table_paging():
     assert "paging: true" in plain_html
     # 閲覧用の表なので編集はできない
     assert "editing: false" in plain_html and "inserting: false" in plain_html
+
+
+# --------------------------------------------------
+# 範囲のファセット
+# --------------------------------------------------
+
+from kgraphnavi.facets import plan_bins, build_histogram, bound_param, render_range_facet
+
+
+@pytest.mark.parametrize("minimum,maximum,bins,integer,expected", [
+    (1947, 2023, 20, True, (1947, 4, 20)),
+    (2000, 2000, 20, True, (2000, 1, 1)),
+    (4000, 4808, 20, False, (4000, 50, 17)),
+    (5, 5, 20, False, (5.0, 1.0, 1)),
+    (0.3, 9.7, 10, False, (0.0, 1.0, 10)),
+])
+def test_plan_bins(minimum, maximum, bins, integer, expected):
+    assert plan_bins(minimum, maximum, bins, integer=integer) == expected
+
+
+@pytest.mark.parametrize("value,datatype,unit,upper,expected", [
+    (1999, "date", None, False, "1999-01-01"),
+    (1999, "date", None, True, "1999-12-31"),
+    (1999, "dateTime", None, True, "1999-12-31T23:59:59"),
+    (1999, "date", "year", True, "1999"),
+    (4050.0, "decimal", None, True, "4050"),
+    (0.5, "decimal", None, False, "0.5"),
+    (12, "integer", None, False, "12"),
+])
+def test_bound_param(value, datatype, unit, upper, expected):
+    assert bound_param(value, datatype, unit, upper=upper) == expected
+
+
+def test_build_histogram_marks_selected_range_and_last_bin():
+    counts = {0: 2, 1: 5, 3: 1, 4: 7}   # 4 は最大値ちょうど（最後の区間に入れる）
+    items = build_histogram(
+        counts, 2000, 1, 4, datatype="date", unit="year", selected={"min": "2001", "max": "2002"}
+    )
+    assert [item["count"] for item in items] == [2, 5, 0, 8]
+    assert [item["in_range"] for item in items] == [False, True, True, False]
+    assert items[1]["min_param"] == "2001" and items[1]["max_param"] == "2001"
+
+
+def test_build_histogram_with_date_selection():
+    items = build_histogram(
+        {0: 1, 1: 1}, 1990, 5, 2, datatype="date", unit=None, selected={"min": "1996-03-01"}
+    )
+    assert items[0]["min_param"] == "1990-01-01" and items[0]["max_param"] == "1994-12-31"
+    assert [item["in_range"] for item in items] == [False, True]
+
+
+def range_content(**overrides):
+    params = request_params(MultiDict([("class", MOUNTAIN), ("f.year.min", "2001")]), path="/collection")
+    content = {
+        "kind": "range",
+        "name": "year",
+        "label": "判決年",
+        "datatype": "date",
+        "unit": "year",
+        "range": {"min": "2000", "max": "2003", "count": 15},
+        "histogram": build_histogram(
+            {0: 2, 1: 5, 3: 1}, 2000, 1, 4, datatype="date", unit="year", selected={"min": "2001"}
+        ),
+        "selected": {"min": "2001"},
+        "params": params,
+    }
+    content.update(overrides)
+    return content
+
+
+def test_render_range_facet():
+    html = render_range_facet(range_content())
+    assert 'class="facet facet-range"' in html
+    assert '<input type="number" name="f.year.min" value="2001" step="1" placeholder="2000"' in html
+    assert 'name="f.year.max" value=""' in html
+    # 自分の範囲以外のパラメータは引き継ぐ
+    assert f'<input type="hidden" name="class" value="{MOUNTAIN}">' in html
+    assert '<input type="hidden" name="f.year.min"' not in html
+    # 棒グラフ: 各区間はその範囲で絞り込むリンク
+    assert "<svg" in html and "判決年の分布" in html
+    assert "f.year.min=2003&amp;f.year.max=2003" in html
+    assert "<title>2001: 5 件</title>" in html
+    assert html.count("<path") == 3      # 件数 0 の区間は棒を描かない
+    assert "#b5cdee" in html              # 範囲外の棒
+    assert "クリア" in html
+
+
+def test_render_range_facet_date_inputs_and_empty():
+    html = render_range_facet(range_content(unit=None, range=None, histogram=[], selected={}))
+    assert 'type="date"' in html
+    assert "値がありません" in html
+    assert "クリア" not in html
+
+
+def test_extract_range_facet():
+    responses = [
+        [{"min": {"type": "literal", "value": "2000"},
+          "max": {"type": "literal", "value": "2003"},
+          "count": {"type": "literal", "value": "15"}}],
+        [{"bin": {"type": "literal", "value": "0"}, "count": {"type": "literal", "value": "4"}}],
+    ]
+
+    class SequenceSPARQL(DummySPARQL):
+        def query(self, query, params=None):
+            self.calls.append((query, params or {}))
+            return responses[len(self.calls) - 1]
+
+    sparql = SequenceSPARQL()
+    gadget = facet_gadget("year", "caselawp:判決日", kind="range", datatype="date", unit="year", label="判決年")
+    gadget.sparql_client = sparql
+    application = make_application({"year": gadget}, sparql)
+    params = request_params(MultiDict([("class", MOUNTAIN), ("f.year.min", "2001")]))
+    collection = application.apply_collection_filters(Collection.from_class(sparql, MOUNTAIN), params)
+    content = gadget.extract(None, application=application, params=params, collection=collection)
+    assert content["kind"] == "range"
+    assert content["range"] == {"min": "2000", "max": "2003", "count": 15}
+    assert content["selected"] == {"min": "2001"}
+    assert [item["count"] for item in content["histogram"]] == [4, 0, 0, 0]
+    # 自分自身の範囲条件は、範囲・分布の計算に使わない
+    assert all("YEAR(?_c" not in query for query, _ in sparql.calls)
+    assert "<svg" in gadget.show(content)
+
+
+def test_render_conditions_one_sided_range():
+    params = request_params(MultiDict([("f.year.min", "2000")]), path="/collection")
+    assert "2000 以上" in render_conditions(params, {})
+    params = request_params(MultiDict([("f.year.max", "2010")]), path="/collection")
+    assert "2010 以下" in render_conditions(params, {})

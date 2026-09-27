@@ -485,10 +485,37 @@ def test_get_range():
         "max": {"type": "literal", "value": "2020"},
         "count": {"type": "literal", "value": "15"},
     }])
-    result = Collection.from_class(sparql, MOUNTAIN).get_range("caselawp:判決日", unit="year")
+    result = Collection.from_class(sparql, MOUNTAIN).get_range("caselawp:判決日", datatype="date")
     assert result == {"min": "1990", "max": "2020", "count": 15}
     query, _ = sparql.calls[0]
-    assert "MIN(YEAR(?_v))" in query
+    assert "BIND(YEAR(?_v) AS ?_n)" in query
+    assert "FILTER(BOUND(?_n))" in query
+    assert "MIN(?_n)" in query
+
+
+def test_range_query_numeric_casts_to_decimal():
+    query = Collection.from_class(DummySPARQL(), MOUNTAIN).range_query("dbo:elevation", datatype="decimal")
+    assert "BIND(<http://www.w3.org/2001/XMLSchema#decimal>(?_v) AS ?_n)" in query
+
+
+def test_get_histogram():
+    sparql = DummySPARQL([
+        {"bin": {"type": "literal", "value": "0"}, "count": {"type": "literal", "value": "3"}},
+        {"bin": {"type": "literal", "value": "2.0"}, "count": {"type": "literal", "value": "5"}},
+        {"count": {"type": "literal", "value": "9"}},
+    ])
+    counts = Collection.from_class(sparql, MOUNTAIN).get_histogram(
+        "dbo:elevation", 4000, 50, datatype="decimal"
+    )
+    assert counts == {0: 3, 2: 5}
+    query, _ = sparql.calls[0]
+    assert "BIND(FLOOR((?_n - 4000) / 50) AS ?bin)" in query
+    assert "GROUP BY ?bin" in query
+
+
+def test_histogram_query_rejects_non_numeric_bounds():
+    with pytest.raises(ValueTermError):
+        Collection.from_class(DummySPARQL(), MOUNTAIN).histogram_query("dbo:x", "0) }", 1)
 
 
 def test_get_range_without_values():

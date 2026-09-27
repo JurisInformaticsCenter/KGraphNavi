@@ -35,7 +35,11 @@ from .facets import (
     facet_selection,
     page_number,
     render_value_facet,
+    render_range_facet,
     render_conditions,
+    plan_bins,
+    build_histogram,
+    is_integer_scale,
     render_pager,
     TAB_PARAM,
 )
@@ -387,6 +391,8 @@ class Gadget:
             params=params,
             exclude={facet_name},
         )
+        if self.extract_method.get("kind") == "range":
+            return self._extract_range_facet(facet_name, predicate, collection, params)
         candidates = collection.get_facets(
             predicate,
             label_predicate=self.extract_method.get("label_predicate", "rdfs:label"),
@@ -402,6 +408,39 @@ class Gadget:
             "name": facet_name,
             "label": self.extract_method.get("label") or facet_name,
             "candidates": candidates,
+            "selected": selected,
+            "params": params,
+        }
+
+    def _extract_range_facet(self, facet_name, predicate, collection, params):
+        """範囲のファセット: 値の範囲と、区間ごとの件数（分布）を取得する。"""
+        datatype = self.extract_method.get("datatype")
+        if not datatype:
+            raise GadgetError(f"facet({facet_name})にdatatypeがありません")
+        unit = self.extract_method.get("unit")
+        _values, ranges = facet_selection(params)
+        selected = ranges.get(facet_name, {})
+        value_range = collection.get_range(predicate, datatype=datatype, unit=unit)
+        histogram = []
+        if value_range is not None:
+            low, width, count = plan_bins(
+                value_range["min"],
+                value_range["max"],
+                self.extract_method.get("bins", 20),
+                integer=is_integer_scale(datatype, unit),
+            )
+            counts = collection.get_histogram(predicate, low, width, datatype=datatype, unit=unit)
+            histogram = build_histogram(
+                counts, low, width, count, datatype=datatype, unit=unit, selected=selected
+            )
+        return {
+            "kind": "range",
+            "name": facet_name,
+            "label": self.extract_method.get("label") or facet_name,
+            "datatype": datatype,
+            "unit": unit,
+            "range": value_range,
+            "histogram": histogram,
             "selected": selected,
             "params": params,
         }
@@ -426,6 +465,8 @@ class Gadget:
                 kwargs["paging"] = not self.page_size
             return shower(content, columns, **kwargs,)
         if show_type == "facet":
+            if isinstance(content, dict) and content.get("kind") == "range":
+                return render_range_facet(content)
             if isinstance(content, dict):
                 return render_value_facet(content, height=self.height)
             return show_facet(

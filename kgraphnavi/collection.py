@@ -41,6 +41,7 @@ from .terms import (
     predicate_term,
     normalize_typed_value,
     DATATYPES,
+    XSD,
 )
 
 logger = logging.getLogger(__name__)
@@ -164,6 +165,18 @@ class RangeCondition:
             f"{var} {predicate} {value_var} .\n"
             f"FILTER({' && '.join(tests)})"
         )
+
+
+def numeric_expression(datatype=None, unit=None):
+    """範囲ファセットで値 ?_v を数値にする SPARQL の式を返す。
+
+    日付（date / dateTime）や unit="year" は年、gYear は先頭4桁、それ以外は decimal。
+    """
+    if unit == "year" or datatype in ("date", "dateTime"):
+        return "YEAR(?_v)"
+    if datatype == "gYear":
+        return f"<{XSD}integer>(SUBSTR(STR(?_v), 1, 4))"
+    return f"<{XSD}decimal>(?_v)"
 
 
 # --------------------------------------------------
@@ -325,16 +338,41 @@ class Collection:
             query += f"\nLIMIT {int(limit)}"
         return query
 
-    def range_query(self, predicate, *, unit=None):
-        """predicate の値の最小値・最大値・件数を求めるSELECTを返す。"""
+    def _numeric_pattern(self, predicate, datatype=None, unit=None):
+        """?uri の predicate の値を数値 ?_n にするパターン（数値にできない値は除く）"""
         predicate = predicate_term(predicate)
-        value = "YEAR(?_v)" if unit == "year" else "?_v"
+        expression = numeric_expression(datatype, unit)
         return (
-            f"SELECT (MIN({value}) AS ?min) (MAX({value}) AS ?max) (COUNT(DISTINCT ?uri) AS ?count)\n"
-            "WHERE {\n"
             f"{_indent(self.to_subquery('?uri'))}\n"
             f"    ?uri {predicate} ?_v .\n"
+            f"    BIND({expression} AS ?_n)\n"
+            "    FILTER(BOUND(?_n))\n"
+        )
+
+    def range_query(self, predicate, *, datatype=None, unit=None):
+        """predicate の値（数値、日付なら年）の最小値・最大値・件数を求めるSELECTを返す。"""
+        return (
+            "SELECT (MIN(?_n) AS ?min) (MAX(?_n) AS ?max) (COUNT(DISTINCT ?uri) AS ?count)\n"
+            "WHERE {\n"
+            f"{self._numeric_pattern(predicate, datatype, unit)}"
             "}"
+        )
+
+    def histogram_query(self, predicate, low, width, *, datatype=None, unit=None):
+        """predicate の値を low から幅 width の区間に分け、区間ごとの件数を求めるSELECTを返す。
+
+        区間の番号 ?bin は 0 始まり（FLOOR((値 - low) / width)）。
+        """
+        low = number_term(low)
+        width = number_term(width)
+        return (
+            "SELECT ?bin (COUNT(DISTINCT ?uri) AS ?count)\n"
+            "WHERE {\n"
+            f"{self._numeric_pattern(predicate, datatype, unit)}"
+            f"    BIND(FLOOR((?_n - {low}) / {width}) AS ?bin)\n"
+            "}\n"
+            "GROUP BY ?bin\n"
+            "ORDER BY ?bin"
         )
 
     # ---- 実行 ----
@@ -384,11 +422,14 @@ class Collection:
             })
         return facets
 
-    def get_range(self, predicate, *, exclude=None, unit=None):
-        """predicate の値の範囲 {"min", "max", "count"} を返す。値がなければ None。"""
+    def get_range(self, predicate, *, exclude=None, datatype=None, unit=None):
+        """predicate の値の範囲 {"min", "max", "count"} を返す。値がなければ None。
+
+        日付（date / dateTime）や unit="year" のときは年で返す。
+        """
         collection = self.without(exclude) if exclude else self
-        results = collection._run(collection.range_query(predicate, unit=unit))
-        if not results or "min" not in results[0]:
+        results = collection._run(collection.range_query(predicate, datatype=datatype, unit=unit))
+        if not results or "min" not in results[0] or "max" not in results[0]:
             return None
         row = results[0]
         return {
@@ -396,6 +437,21 @@ class Collection:
             "max": row["max"]["value"],
             "count": int(row["count"]["value"]),
         }
+
+    def get_histogram(self, predicate, low, width, *, exclude=None, datatype=None, unit=None):
+        """区間番号 → 件数 の辞書を返す。"""
+        collection = self.without(exclude) if exclude else self
+        query = collection.histogram_query(predicate, low, width, datatype=datatype, unit=unit)
+        counts = {}
+        for row in collection._run(query):
+            if "bin" not in row:
+                continue
+            try:
+                index = int(float(row["bin"]["value"]))
+            except ValueError:
+                continue
+            counts[index] = counts.get(index, 0) + int(row["count"]["value"])
+        return counts
 
     # ---- 互換用 ----
 

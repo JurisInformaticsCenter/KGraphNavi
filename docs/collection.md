@@ -73,18 +73,29 @@
 - 同じファセットで複数の値を選ぶと OR、異なるファセットの条件は AND になります。
 - 各ファセットの候補の件数は、自分以外のファセットの条件で絞り込んだコレクションで数えます。
 
-### 範囲のファセット（条件の適用のみ。画面は今後追加）
+### 範囲のファセット
+
+数値や日付の範囲で絞り込みます。値の分布を棒グラフで表示し、下限・上限を入力するか、棒をクリックしてその区間で絞り込みます。
 
 ```yaml
+- def: gadget
+  name: mountain_elevation_facet
   get:
     type: facet
     kind: range
-    name: year
-    label: 判決年
-    predicate: caselawp:判決日
-    datatype: date          # integer | decimal | double | date | dateTime | gYear
-    unit: year              # 日付を年で比較する場合
+    name: elevation
+    label: 標高（m）
+    predicate: dbo:elevation
+    datatype: decimal       # integer | decimal | double | date | dateTime | gYear
+    bins: 20                # 分布の区間の数（目安。既定 20）
+  show:
+    type: facet
 ```
+
+- `datatype: date` / `dateTime` の値は、分布を年ごとに数え、入力欄は日付になります。
+- `unit: year` を指定すると、日付を年で比較し、入力欄も年（数値）になります（例: 判決年）。
+- 数値にできない値（表記ゆれのある文字列など）は、範囲・分布の計算から除きます。
+- 片側だけの指定もできます（例: 下限だけ → 「4000 以上」）。
 
 ## URL パラメータ
 

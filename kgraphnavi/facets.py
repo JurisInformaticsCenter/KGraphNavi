@@ -21,6 +21,8 @@
 ##      params["_args"]   = [(key, value), ...]   URL パラメータそのもの（リンク生成用）
 """
 
+import math
+from decimal import Decimal
 from html import escape
 from urllib.parse import urlencode, quote
 
@@ -202,6 +204,15 @@ def render_value_facet(content, height=None):
     )
 
 
+def range_text(low, high):
+    """範囲の表示（片側だけなら「以上」「以下」）"""
+    if low and high:
+        return f"{low}–{high}"
+    if low:
+        return f"{low} 以上"
+    return f"{high} 以下"
+
+
 def render_conditions(params, definitions, count=None):
     """「現在の条件」と件数を描画する。
 
@@ -229,7 +240,7 @@ def render_conditions(params, definitions, count=None):
         chips.append(
             '<span class="condition">'
             f'<span class="condition-name">{escape(label)}:</span> '
-            f'<span class="condition-value">{escape(str(low))}–{escape(str(high))}</span>'
+            f'<span class="condition-value">{escape(range_text(low, high))}</span>'
             f'<a class="condition-remove" href="{escape(url)}" title="この条件を外す">✕</a>'
             "</span>"
         )
@@ -270,3 +281,255 @@ def render_pager(params, page, page_size, total):
 
 def resource_url(uri):
     return f"/resource?uri={quote(str(uri), safe='')}"
+
+
+# --------------------------------------------------
+# 範囲のファセット
+# --------------------------------------------------
+
+# 値を年（整数）で扱う種類
+YEARLY_TYPES = ("date", "dateTime")
+INTEGER_TYPES = ("integer", "gYear")
+
+# 棒グラフの配色（dataviz の参照パレットの青。範囲外は同じ色相の淡い段）
+HISTOGRAM_BAR = "#2a78d6"
+HISTOGRAM_BAR_MUTED = "#b5cdee"
+HISTOGRAM_AXIS = "#d4d4d0"
+HISTOGRAM_TEXT = "#52514e"
+
+
+def is_integer_scale(datatype, unit):
+    """区間を整数（年を含む）で区切るか"""
+    return unit == "year" or datatype in YEARLY_TYPES or datatype in INTEGER_TYPES
+
+
+def _nice_width(raw):
+    """区間の幅を 1, 2, 5 × 10^k に丸める"""
+    if raw <= 0:
+        return 1.0
+    exponent = math.floor(math.log10(raw))
+    base = 10 ** exponent
+    for step in (1, 2, 5, 10):
+        if raw <= step * base:
+            return step * base
+    return 10 * base
+
+
+def plan_bins(minimum, maximum, bins, *, integer):
+    """最小値・最大値から、区間の開始値 low、幅 width、区間数 count を決める。"""
+    bins = max(1, int(bins or 20))
+    minimum = float(minimum)
+    maximum = float(maximum)
+    if maximum < minimum:
+        minimum, maximum = maximum, minimum
+    if integer:
+        low = math.floor(minimum)
+        span = math.floor(maximum) - low + 1
+        width = max(1, math.ceil(span / bins))
+        count = max(1, math.ceil(span / width))
+        return low, width, count
+    width = _nice_width((maximum - minimum) / bins) if maximum > minimum else 1.0
+    low = math.floor(minimum / width) * width
+    count = max(1, math.floor((maximum - low) / width) + 1)
+    return low, width, count
+
+
+def _number_text(value):
+    """数値を URL・表示用の短い文字列にする（1000.0 → 1000）"""
+    number = Decimal(repr(float(value))).normalize()
+    text = format(number, "f")
+    return text
+
+
+def bin_bounds(index, low, width, *, integer):
+    """区間 index の下限・上限（上限を含む）"""
+    start = low + index * width
+    if integer:
+        return int(start), int(start + width - 1)
+    return start, start + width
+
+
+def bound_param(value, datatype, unit, *, upper):
+    """区間の端を、URL パラメータ（f.<name>.min / .max）の値にする。"""
+    if unit != "year" and datatype in YEARLY_TYPES:
+        year = int(value)
+        if datatype == "date":
+            return f"{year:04d}-12-31" if upper else f"{year:04d}-01-01"
+        return f"{year:04d}-12-31T23:59:59" if upper else f"{year:04d}-01-01T00:00:00"
+    if is_integer_scale(datatype, unit):
+        return str(int(value))
+    return _number_text(value)
+
+
+def selection_number(value, datatype, unit):
+    """選択中の下限・上限を、区間と比べられる数値にする（日付は年）。解釈できなければ None"""
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    try:
+        if unit != "year" and datatype in YEARLY_TYPES:
+            return int(text[:4]) if text[:4].isdigit() else None
+        return float(text)
+    except ValueError:
+        return None
+
+
+def build_histogram(counts, low, width, count, *, datatype, unit, selected):
+    """区間ごとの件数と、各区間を選ぶ URL パラメータの値を並べる。"""
+    integer = is_integer_scale(datatype, unit)
+    selected_min = selection_number((selected or {}).get("min"), datatype, unit)
+    selected_max = selection_number((selected or {}).get("max"), datatype, unit)
+    result = []
+    for index in range(count):
+        start, end = bin_bounds(index, low, width, integer=integer)
+        # 最大値ちょうどは最後の区間に入れる
+        value = counts.get(index, 0) + (counts.get(count, 0) if index == count - 1 else 0)
+        in_range = True
+        if selected_min is not None and end < selected_min:
+            in_range = False
+        if selected_max is not None and start > selected_max:
+            in_range = False
+        result.append({
+            "start": start,
+            "end": end,
+            "count": value,
+            "min_param": bound_param(start, datatype, unit, upper=False),
+            "max_param": bound_param(end, datatype, unit, upper=True),
+            "in_range": in_range,
+        })
+    return result
+
+
+def _bin_label(item, integer):
+    if integer:
+        if item["start"] == item["end"]:
+            return str(item["start"])
+        return f'{item["start"]}–{item["end"]}'
+    return f'{_number_text(item["start"])}–{_number_text(item["end"])}'
+
+
+def render_histogram(content, *, width=260, height=72):
+    """区間ごとの件数を棒グラフ（SVG）で描く。各棒はその区間で絞り込むリンク。"""
+    histogram = content.get("histogram") or []
+    if not histogram:
+        return ""
+    params = content.get("params") or {}
+    name = content["name"]
+    integer = is_integer_scale(content.get("datatype"), content.get("unit"))
+    field_min = f"{FACET_PREFIX}{name}.min"
+    field_max = f"{FACET_PREFIX}{name}.max"
+    peak = max(item["count"] for item in histogram) or 1
+    gap = 2
+    slot = width / len(histogram)
+    bar_width = max(1.0, min(24.0, slot - gap))
+    plot_height = height - 18  # 下に軸ラベルの余白
+    radius = min(4.0, bar_width / 2)
+    parts = [
+        f'<svg class="histogram" viewBox="0 0 {width} {height}" width="100%" '
+        f'role="img" aria-label="{escape(content.get("label") or name)}の分布">'
+    ]
+    for index, item in enumerate(histogram):
+        x = index * slot + (slot - bar_width) / 2
+        label = _bin_label(item, integer)
+        url = make_url(
+            params,
+            drop={field_min, field_max},
+            add=[(field_min, item["min_param"]), (field_max, item["max_param"])],
+        )
+        color = HISTOGRAM_BAR if item["in_range"] else HISTOGRAM_BAR_MUTED
+        bar = ""
+        if item["count"] > 0:
+            bar_height = max(2.0, plot_height * item["count"] / peak)
+            top = plot_height - bar_height
+            r = min(radius, bar_height)
+            # 上端だけ角を丸め、軸側は四角にする
+            bar = (
+                f'<path fill="{color}" d="M{x:.1f},{plot_height:.1f} '
+                f'V{top + r:.1f} Q{x:.1f},{top:.1f} {x + r:.1f},{top:.1f} '
+                f'H{x + bar_width - r:.1f} Q{x + bar_width:.1f},{top:.1f} {x + bar_width:.1f},{top + r:.1f} '
+                f'V{plot_height:.1f} Z"/>'
+            )
+        parts.append(
+            f'<a href="{escape(url)}" class="histogram-bin">'
+            f'<title>{escape(label)}: {item["count"]:,} 件</title>'
+            # 棒より大きい当たり判定（透明）
+            f'<rect x="{index * slot:.1f}" y="0" width="{slot:.1f}" height="{plot_height:.1f}" fill="transparent"/>'
+            f"{bar}</a>"
+        )
+    parts.append(
+        f'<line x1="0" y1="{plot_height + 0.5:.1f}" x2="{width}" y2="{plot_height + 0.5:.1f}" '
+        f'stroke="{HISTOGRAM_AXIS}" stroke-width="1"/>'
+    )
+    first = histogram[0]
+    last = histogram[-1]
+    start_text = str(first["start"]) if integer else _number_text(first["start"])
+    end_text = str(last["end"]) if integer else _number_text(last["end"])
+    parts.append(
+        f'<text x="0" y="{height - 4}" font-size="11" fill="{HISTOGRAM_TEXT}">{escape(start_text)}</text>'
+        f'<text x="{width}" y="{height - 4}" font-size="11" fill="{HISTOGRAM_TEXT}" '
+        f'text-anchor="end">{escape(end_text)}</text>'
+    )
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+def input_type(datatype, unit):
+    if unit != "year" and datatype == "date":
+        return "date"
+    if unit != "year" and datatype == "dateTime":
+        return "datetime-local"
+    return "number"
+
+
+def render_range_facet(content):
+    """範囲のファセット（下限・上限の入力欄と分布の棒グラフ）を描画する。
+
+    content = {
+        "kind": "range", "name", "label", "datatype", "unit",
+        "range": {"min", "max", "count"} または None,
+        "histogram": build_histogram() の結果,
+        "selected": {"min", "max"},
+        "params": Gadget に渡された params,
+    }
+    """
+    name = content["name"]
+    params = content.get("params") or {}
+    selected = content.get("selected") or {}
+    value_range = content.get("range")
+    field_min = f"{FACET_PREFIX}{name}.min"
+    field_max = f"{FACET_PREFIX}{name}.max"
+    kind = input_type(content.get("datatype"), content.get("unit"))
+    step = ""
+    if kind == "number":
+        step = ' step="1"' if is_integer_scale(content.get("datatype"), content.get("unit")) else ' step="any"'
+    placeholder_min = placeholder_max = ""
+    if value_range and kind == "number":
+        placeholder_min = f' placeholder="{escape(str(value_range["min"]))}"'
+        placeholder_max = f' placeholder="{escape(str(value_range["max"]))}"'
+    if value_range is None:
+        body = '<p class="facet-empty">値がありません</p>'
+    else:
+        body = render_histogram(content)
+    clear = ""
+    if selected.get("min") or selected.get("max"):
+        clear = (
+            f'<a class="facet-clear" href="{escape(make_url(params, drop={field_min, field_max}))}">'
+            "クリア</a>"
+        )
+    return (
+        f'<form class="facet facet-range" method="GET" action="{escape(params.get(PATH_PARAM) or "")}" '
+        f'data-facet-name="{escape(name)}">\n'
+        f"{hidden_inputs(params, exclude_keys={field_min, field_max})}\n"
+        f"{body}\n"
+        '<div class="range-inputs">'
+        f'<input type="{kind}" name="{escape(field_min)}" value="{escape(str(selected.get("min") or ""))}"'
+        f'{step}{placeholder_min} aria-label="下限">'
+        '<span class="range-separator">〜</span>'
+        f'<input type="{kind}" name="{escape(field_max)}" value="{escape(str(selected.get("max") or ""))}"'
+        f'{step}{placeholder_max} aria-label="上限">'
+        "</div>\n"
+        '<div class="facet-actions">'
+        '<button type="submit" class="facet-apply">適用</button>'
+        f"{clear}</div>\n"
+        "</form>"
+    )

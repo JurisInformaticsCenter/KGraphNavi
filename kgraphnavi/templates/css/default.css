@@ -522,3 +522,34 @@ form.facet {
     width: 100%;
   }
 }
+
+/* 範囲のファセット */
+.facet-range .histogram {
+  display: block;
+  max-width: 280px;
+  margin: 4px 0 8px;
+}
+
+.histogram-bin:hover path {
+  opacity: 0.8;
+}
+
+.range-inputs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.range-inputs input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.range-separator {
+  color: #64748b;
+}

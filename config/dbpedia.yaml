@@ -43,6 +43,7 @@
     gadget:
         - mountain_facet
         - mountain_range_facet
+        - mountain_elevation_facet
         - mountain_list
 -   def: gadget
     name: mountain_list
@@ -98,6 +99,18 @@
       value_type: iri
       lang: en
       limit: 30
+    show:
+      type: facet
+-   def: gadget
+    name: mountain_elevation_facet
+    get:
+      type: facet
+      kind: range
+      name: elevation
+      label: 標高（m）
+      predicate: dbo:elevation
+      datatype: decimal
+      bins: 20
     show:
       type: facet
 -   def: gadget
