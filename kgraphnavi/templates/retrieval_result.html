@@ -9,7 +9,7 @@
     </thead>
       {% for uri, label, type in result %}
     <tr><td>{{ loop.index }}</td>
-      <td><a href='http://localhost:8000/resource?uri={{ uri }}'>{{ label }}</a></td>
+      <td><a href='/resource?uri={{ uri|urlencode }}'>{{ label }}</a></td>
     <td>{{ type }}</td></tr>
       {% endfor %}
     </table>

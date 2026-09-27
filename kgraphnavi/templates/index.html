@@ -2,7 +2,7 @@
 
 {% block content %}
 <div class="container">
-  <h1 class="page-title">{{ title }}</h1>
+  <h1 class="page-title">{{ page_title }}</h1>
   <p class="description">{{ describe }}</p>
 
   <!-- 検索フォームエリア -->
@@ -43,21 +43,21 @@
   <h2>入力サンプル</h2>
   <ul>
     {% for q in query_samples %}
-      <li><a href="http://localhost:8000/search?q={{ q }}">{{ q }}</a></li>
+      <li><a href="/search?q={{ q|urlencode }}">{{ q }}</a></li>
     {% endfor %}
   </ul>
 
   <h2>リソースサンプル</h2>
   <ul>
     {% for param, label in resource_samples %}
-      <li><a href="http://localhost:8000/resource?{{ param }}">{{ label }}</a></li>
+      <li><a href="/resource?{{ param }}">{{ label }}</a></li>
     {% endfor %}
   </ul>
 
   <h2>コレクションサンプル</h2>
   <ul>
     {% for param, label in collection_samples %}
-      <li><a href="http://localhost:8000/collection?{{ param }}">{{ label }}</a></li>
+      <li><a href="/collection?{{ param }}">{{ label }}</a></li>
     {% endfor %}
   </ul>
 </div>

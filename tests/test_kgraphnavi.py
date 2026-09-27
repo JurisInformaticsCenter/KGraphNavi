@@ -1311,3 +1311,54 @@ def test_move_focus_validates_path():
     )
     with pytest.raises(ValueTermError):
         move_focus("http://example.org/A", "dbo:x } ?s ?p ?o {", client)
+
+
+# --------------------------------------------------
+# 画面（テンプレート）
+# --------------------------------------------------
+
+def test_templates_have_no_fixed_host():
+    """テンプレートのリンクは相対パスで、特定のホスト・ポートを含まない。"""
+    from pathlib import Path
+    import kgraphnavi
+
+    templates = Path(kgraphnavi.__file__).parent / "templates"
+    for path in templates.glob("*.html"):
+        assert "localhost" not in path.read_text(encoding="utf-8"), path.name
+
+
+def test_top_page_links_are_relative(tmp_path):
+    from kgraphnavi.app import build_application, create_app
+
+    config = tmp_path / "test.yaml"
+    config.write_text(
+        """
+- title: TestKG
+- sample:
+    resource:
+      - http://example.org/A,Aの例
+    collection:
+      - http://example.org/Mountain,山
+    search:
+      - 富士山
+- def: page
+  name: Resource
+  type: '*'
+  gadget: [Out]
+- def: gadget
+  name: Out
+  get:
+    type: sparql
+    src: "select ?p ?o where { $uri ?p ?o }"
+  show:
+    type: htable
+""",
+        encoding="utf-8",
+    )
+    app = create_app(build_application(str(config), endpoint="http://example.org/sparql"))
+    html = app.test_client().get("/").get_data(as_text=True)
+    assert "TestKG" in html
+    assert 'href="/resource?uri=http%3A%2F%2Fexample.org%2FA"' in html
+    assert 'href="/collection?class=http%3A%2F%2Fexample.org%2FMountain"' in html
+    assert 'href="/search?q=%E5%AF%8C%E5%A3%AB%E5%B1%B1"' in html
+    assert ">富士山<" in html

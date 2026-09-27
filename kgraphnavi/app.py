@@ -890,7 +890,7 @@ def setconfig(config, base_dir=None):
                 collection_samples = [
                     parse_uri_sample(value)
                     for value in sample.get("collection", [])]
-                query_samples = [sample.get("search", [])]
+                query_samples = list(sample.get("search", []) or [])
             if "priority" in config:
                 priority_list = config["priority"]
             if "title" in config:

@@ -61,7 +61,6 @@ def init_app(app):
         ]
         return render_template(
             'index.html',
-            name="FFF",
             query_samples=application.query_samples,
             resource_samples=resource_samples_encode,
             collection_samples=collection_samples_encode,
@@ -83,6 +82,7 @@ def init_app(app):
             'retrieval_result.html',
             query=query,
             result=retrieve_result,
+            page_title=application.title,
         )
 
 # RDFエンティティのページ
