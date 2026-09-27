@@ -1,0 +1,307 @@
+/* Base Layout */
+body {
+  margin: 0;
+  padding-top: 60px; /* ナビバー分の余白を適切に確保 */
+  padding-left: 8px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+#cy {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  top: 0px;
+  left: 0px;
+}
+
+h1, .page-title {
+  margin: 0 0 8px 0;
+  line-height: 1.2;
+}
+
+.page-title {
+  padding-top: 10px;
+  padding-left: 8px;
+}
+
+.gadget {
+  margin-bottom: 2em;
+}
+
+.gadget-title {
+  line-height: 1.1;
+  font-size: 1.2em;
+  margin: 0.5em 0;
+  padding-top: 10px;
+  padding-bottom: 0.2em;
+  padding-left: 8px;
+  border-bottom: 1px solid #ccc;
+}
+
+canvas {
+  display: block;
+  margin: 0;
+}
+
+/* ==========================================
+   Navigation Bar & Header Search
+   ========================================== */
+.navbar {
+  display: flex;
+  align-items: center;
+  min-height: 50px; /* 固定高さ32px指定を破棄し、収まりを調整 */
+  background: #1a1a1a;
+  padding: 0.4rem 1rem;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+  z-index: 1000;
+  box-sizing: border-box;
+}
+
+.navbar ul {
+  display: flex;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  max-width: 1200px;
+  gap: 1.5rem;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.navbar a {
+  color: white;
+  text-decoration: none;
+  padding: 0.4rem 0.8rem;
+  position: relative;
+  font-weight: 500;
+  transition: color 0.3s ease;
+}
+
+.navbar a::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 0;
+  height: 2px;
+  background: #00d4ff;
+  transition: all 0.3s ease;
+  transform: translateX(-50%);
+}
+
+.navbar a:hover::after {
+  width: 80%;
+}
+
+.navbar a:hover {
+  color: #00d4ff;
+}
+
+.nav_left {
+  margin-right: auto;
+}
+
+.nav_right {
+  margin-left: auto;
+}
+
+.search_item {
+  display: flex;
+  align-items: center;
+}
+
+/* 検索エリアラップ */
+.search_wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(255, 255, 255, 0.12);
+  padding: 0.3rem 0.6rem 0.3rem 0.8rem;
+  border-radius: 20px;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+/* 1. 検索入力欄の拡張 */
+.search_wrap input[type="search"] {
+  background: transparent;
+  border: none;
+  color: #ffffff;
+  padding: 0.4rem;
+  width: 220px; /* 120pxから拡大 */
+  font-size: 0.9rem;
+  outline: none;
+}
+
+.search_wrap input::placeholder {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.search_wrap button {
+  background: #00d4ff;
+  border: none;
+  color: #1a1a1a;
+  padding: 0.4rem 0.9rem;
+  border-radius: 14px;
+  font-weight: bold;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+  white-space: nowrap;
+}
+
+.search_wrap button:hover {
+  background: #00b8d4;
+}
+
+/* 2. 「部分」「完全」一致トグルの可読性改善 */
+.search_modes, .search-modes {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 0.2rem;
+  border-radius: 12px;
+  margin-left: 0.2rem;
+}
+
+.search_modes label, .search-modes label {
+  color: #ffffff !important;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  margin: 0;
+  padding: 0.2rem 0.5rem;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  transition: background 0.2s, color 0.2s;
+}
+
+.search_modes label:hover, .search-modes label:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* ラジオボタン選択時の強調表示 */
+.search_modes label:has(input:checked),
+.search-modes label:has(input:checked) {
+  background: #00d4ff;
+  color: #1a1a1a !important;
+}
+
+.search_modes label:has(input:checked) *,
+.search-modes label:has(input:checked) * {
+  color: #1a1a1a !important;
+}
+
+.search_modes input[type="radio"],
+.search-modes input[type="radio"] {
+  accent-color: #00d4ff;
+  width: 0.9rem;
+  height: 0.9rem;
+  margin: 0;
+  cursor: pointer;
+}
+
+/* ==========================================
+   Page Inner Content Search Section (index.html用)
+   ========================================== */
+.search-section {
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  padding: 20px;
+  border-radius: 8px;
+  margin: 20px 0 30px 0;
+  max-width: 600px;
+}
+
+.search-input-group {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.search-input {
+  flex: 1;
+  padding: 10px 14px;
+  font-size: 15px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  outline: none;
+}
+
+.search-input:focus {
+  border-color: #00b8d4;
+  box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.2);
+}
+
+.search-mode-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: #334155;
+}
+
+.mode-options {
+  display: inline-flex;
+  gap: 6px;
+  background-color: #e2e8f0;
+  padding: 3px;
+  border-radius: 6px;
+}
+
+.mode-option {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 600;
+  color: #334155;
+}
+
+.mode-option:has(input:checked) {
+  background-color: #ffffff;
+  color: #0284c7;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+/* レスポンシブ対応 */
+@media (max-width: 768px) {
+  .navbar ul {
+    padding: 0;
+  }
+  .search_wrap {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+    max-width: 260px;
+  }
+  .search_wrap input[type="search"] {
+    width: 100%;
+  }
+  .search_modes {
+    justify-content: center;
+    margin-left: 0;
+  }
+}
+
+# tab
+.kg-tab-buttons {
+    margin-bottom: 1em;
+}
+
+.kg-tab-button {
+    padding: 0.5em 1em;
+    margin-right: 0.3em;
+    cursor: pointer;
+}

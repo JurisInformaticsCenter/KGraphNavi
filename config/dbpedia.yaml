@@ -1,0 +1,239 @@
+-   title: DBpedia
+-   sparql_endpoint: "https://dbpedia.org/sparql"
+-   prefixes:
+        skos: http://www.w3.org/2004/02/skos/core#
+        dct:  http://purl.org/dc/terms/
+        foaf: http://xmlns.com/foaf/0.1/
+        rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
+        rdfs: http://www.w3.org/2000/01/rdf-schema#
+        dbp: http://dbpedia.org/property/
+        dbo: http://dbpedia.org/ontology/
+        dbc: "http://dbpedia.org/resource/Category:"
+        
+-   describe: DBpedia
+-   rdfstore: virtuoso
+-   label: rdfs:label
+-   sample:
+      resource:
+        - http://dbpedia.org/resource/Mount_Fuji
+        - http://dbpedia.org/resource/Mont_Blanc
+        - http://dbpedia.org/resource/Matterhorn
+      collection:
+        - http://dbpedia.org/ontology/Mountain,AlpsMountains
+      search:
+        - Ohtani
+-   priority:
+        - http://dbpedia.org/ontology/Mountain
+        - http://dbpedia.org/ontology/Organisation
+-   def: page
+    name: Mountain
+    type: http://dbpedia.org/ontology/Mountain
+    gadget:
+        - MountainH
+        - MountainV
+-   def: page
+    name: MountainCollection
+    type: collection
+    query: |
+      SELECT ?uri
+      WHERE {
+        ?uri rdf:type dbo:Mountain .
+        ?uri dct:subject dbc:Mountains_of_the_Alps .
+      }
+    tabs:
+      - label: list
+        gadget:
+            - mountain_list
+      - label: facet
+        gadget:
+            - mountain_facet
+-   def: gadget
+    name: mountain_list
+    get:
+        type: sparql
+        src: |
+            SELECT DISTINCT ?entity ?label ?country ?elevation ?thumbnail
+            WHERE {
+                ?entity rdfs:label ?label .
+                FILTER(lang(?label) = "en")
+                OPTIONAL {
+                ?entity dbo:country ?country .
+                }
+                OPTIONAL {
+                ?entity dbo:elevation ?elevation .
+                }
+                OPTIONAL {
+                ?entity dbo:thumbnail ?thumbnail .
+                }
+            }
+    show:
+        type: htable
+        columns:
+        - id: entity
+          type: link
+          string: "?label"
+          href: "?entity"
+          label: "Mountain"
+          width: 200
+        - id: country
+          type: link
+          display: localname
+          label: "Country"
+        - id: elevation
+          type: literal
+          label: "Elevation"
+          width: 80
+        - id: thumbnail
+          type: image
+          label: "Image"
+          width: 120
+-   def: gadget
+    name: mountain_facet
+    get:
+      type: facet
+      name: country
+      predicate: http://dbpedia.org/ontology/country
+    show:
+      type: facet
+-   def: page
+    name: Organisation
+    type: http://dbpedia.org/ontology/Organisation
+    gadget:
+        - Organisation
+-   def: page
+    name: Country
+    type: http://dbpedia.org/ontology/Country
+    gadget:
+        - Out
+        - In
+-   def: page
+    name: SportsEvent
+    type: http://dbpedia.org/ontology/Event
+    gadget:
+        - Champion
+-   def: page
+    name: Resource
+    type: '*'
+    gadget:
+        - Resource
+-   def: gadget
+    name: Resource
+    get:
+        type: sparql
+        src: |
+            select ?p ?o where {
+                $uri ?p ?o}
+    show: 
+        type: htable
+-   def: gadget
+    name: MountainV
+    get:
+        type: sparql
+        src: |
+            SELECT ?country ?elevation ?thumbnail WHERE {
+                $uri dbo:thumbnail ?thumbnail .
+                OPTIONAL { $uri dbp:country ?country }
+                OPTIONAL { $uri dbp:prominenceM ?p }
+                OPTIONAL { $uri dbp:elevationM ?e }
+                BIND(COALESCE(?p, ?e) AS ?elevation)
+            }
+    show: 
+        type: vtable
+        attribute_width: 180
+        value_width: 400
+        columns:
+            - id: country
+              type: link
+              display: localname
+            - id: elevation
+            - id: thumbnail
+              type: image
+-   def: gadget
+    name: MountainH
+    get:
+        type: sparql
+        src: |
+            SELECT ?country ?elevation ?thumbnail WHERE {
+                $uri dbo:thumbnail ?thumbnail .
+                OPTIONAL { $uri dbp:country ?country }
+                OPTIONAL { $uri dbp:prominenceM ?p }
+                OPTIONAL { $uri dbp:elevationM ?e }
+                BIND(COALESCE(?p, ?e) AS ?elevation)
+            }
+    show: 
+        type: htable
+        columns:
+            - id: country
+              type: link
+              display: localname
+              width: 200
+            - id: elevation
+              width: 50
+            - id: thumbnail
+              type: image
+              width: 600
+-   def: gadget
+    name: Organisation
+    get:
+        type: sparql
+        src: |
+            SELECT ?name ?homepage ?locationCountry ?thumbnail WHERE {
+                $uri dbo:thumbnail ?thumbnail .
+                OPTIONAL { $uri dbo:originalName ?name }
+                OPTIONAL { $uri foaf:homepage ?homepage }
+                OPTIONAL { $uri dbp:locationCountry ?locationCountry }
+            }
+    show: 
+        type: htable
+        columns:
+            - id: name
+            - id: homepage
+              type: directlink
+            - id: locationCountry
+              type: link
+            - id: thumbnail
+              type: image
+              width: 600
+-   def: gadget
+    name: Champion
+    get:
+        type: sparql
+        src: |
+
+            SELECT ?year ?winner ?second ?thumbnail WHERE {
+                $uri dbp:year ?year;
+                     dbp:champion ?winner;
+                     dbp:second ?second;
+                     dbo:thumbnail ?thumbnail
+            }
+    show: 
+        type: vtable
+        columns:
+            - id: year
+            - id: winner
+            - id: second
+            - id: thumbnail
+              type: image
+-   def: gadget
+    name: Out
+    get:
+        type: sparql
+        src: |
+            select ?p ?o where {
+                $uri ?p ?o}
+    show: 
+        type: htable
+-   def: gadget
+    name: In
+    get:
+        type: sparql
+        src: |
+            prefix ctdv: <http://bio2rdf.org/ctd_vocabulary:>
+            select ?s ?p where {
+                ?s ?p $uri
+            }
+    show: 
+        type: htable
+        
+
+

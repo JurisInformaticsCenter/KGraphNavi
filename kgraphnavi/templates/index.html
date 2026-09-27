@@ -1,0 +1,64 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container">
+  <h1 class="page-title">{{ title }}</h1>
+  <p class="description">{{ describe }}</p>
+
+  <!-- 検索フォームエリア -->
+  <div class="search-section">
+    <form action="/search" method="GET" class="search-form">
+      
+      <!-- キーボード入力＋送信ボタンエリア -->
+      <div class="search-input-group">
+        <input 
+          type="search" 
+          name="q" 
+          class="form-control search-input" 
+          placeholder="検索キーワードを入力..." 
+          aria-label="検索キーワード"
+          required
+        >
+        <button type="submit" class="btn btn-primary search-btn">検索</button>
+      </div>
+
+      <!-- 検索モード選択エリア -->
+      <div class="search-mode-container">
+        <span class="search-mode-label">検索モード：</span>
+        <div class="mode-options">
+          <label class="mode-option">
+            <input type="radio" name="mode" value="partial">
+            <span>部分一致</span>
+          </label>
+          <label class="mode-option">
+            <input type="radio" name="mode" value="perfect" checked>
+            <span>完全一致</span>
+          </label>
+        </div>
+      </div>
+
+    </form>
+  </div>
+
+  <h2>入力サンプル</h2>
+  <ul>
+    {% for q in query_samples %}
+      <li><a href="http://localhost:8000/search?q={{ q }}">{{ q }}</a></li>
+    {% endfor %}
+  </ul>
+
+  <h2>リソースサンプル</h2>
+  <ul>
+    {% for param, label in resource_samples %}
+      <li><a href="http://localhost:8000/resource?{{ param }}">{{ label }}</a></li>
+    {% endfor %}
+  </ul>
+
+  <h2>コレクションサンプル</h2>
+  <ul>
+    {% for param, label in collection_samples %}
+      <li><a href="http://localhost:8000/collection?{{ param }}">{{ label }}</a></li>
+    {% endfor %}
+  </ul>
+</div>
+{% endblock %}

@@ -1,0 +1,13 @@
+# ローカル設定の例
+#
+# このファイルを config/local.yaml としてコピーし、各自の環境に合わせて書き換えてください。
+# config/local.yaml は .gitignore の対象で、リポジトリには含まれません。
+# 設定ファイル（例: config/caselaw.yaml）と同じフォルダに local.yaml があると自動で読み込まれ、
+# 設定ファイルの値を上書きします。--local で別のファイルを指定することもできます。
+
+# SPARQLエンドポイント（コマンドラインの -e が優先）
+- sparql_endpoint: "http://localhost:8890/sparql"
+
+# /data/<path> で配信するフォルダ（判決HTMLなど）。~ と相対パス（このファイル基準）が使える
+# コマンドラインの --data-dir、環境変数 KGRAPHNAVI_DATA_DIR が優先
+# - data_dir: ~/caselaw/html

@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+
+# 仮想環境
+.venv/
+venv/
+env/
+
+# ローカル設定・データ（各自の環境に依存するもの、限定公開のもの）
+config/local.yaml
+data/
+workspace/
+*.db
+.env
+
+# エディタ・OS
+.DS_Store
+.idea/
+.vscode/
+.ipynb_checkpoints/

@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kgraphnavi"
+version = "0.1.0.dev0"
+description = "RDFベースの知識グラフを探索・分析するための可視化フレームワーク"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Fumihito NISHINO" }]
+dependencies = [
+    "Flask>=3.1",
+    "PyYAML>=6.0",
+    "SPARQLWrapper>=2.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[project.scripts]
+kgraphnavi = "kgraphnavi.app:main"
+
+[tool.setuptools]
+packages = ["kgraphnavi"]
+
+[tool.setuptools.package-data]
+kgraphnavi = ["templates/*.html", "templates/*.ico", "templates/css/*.css"]
