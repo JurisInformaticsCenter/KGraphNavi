@@ -408,6 +408,14 @@ def _bin_label(item, integer):
     return f'{_number_text(item["start"])}–{_number_text(item["end"])}'
 
 
+def _axis_text(value, integer):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return str(int(number)) if integer else _number_text(number)
+
+
 def render_histogram(content, *, width=260, height=72):
     """区間ごとの件数を棒グラフ（SVG）で描く。各棒はその区間で絞り込むリンク。"""
     histogram = content.get("histogram") or []
@@ -460,10 +468,14 @@ def render_histogram(content, *, width=260, height=72):
         f'<line x1="0" y1="{plot_height + 0.5:.1f}" x2="{width}" y2="{plot_height + 0.5:.1f}" '
         f'stroke="{HISTOGRAM_AXIS}" stroke-width="1"/>'
     )
+    # 軸の両端は、実際の最小値・最大値を表示する
+    value_range = content.get("range") or {}
     first = histogram[0]
     last = histogram[-1]
-    start_text = str(first["start"]) if integer else _number_text(first["start"])
-    end_text = str(last["end"]) if integer else _number_text(last["end"])
+    start_value = value_range.get("min", first["start"])
+    end_value = value_range.get("max", last["end"])
+    start_text = _axis_text(start_value, integer)
+    end_text = _axis_text(end_value, integer)
     parts.append(
         f'<text x="0" y="{height - 4}" font-size="11" fill="{HISTOGRAM_TEXT}">{escape(start_text)}</text>'
         f'<text x="{width}" y="{height - 4}" font-size="11" fill="{HISTOGRAM_TEXT}" '

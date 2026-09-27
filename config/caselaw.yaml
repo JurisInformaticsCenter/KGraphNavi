@@ -2,19 +2,33 @@
 -   describe: 日本の判例に関するデータ
 -   rdfstore: virtuoso
 -   label: rdfs:label
--   query_samples:
-        - 宮川美津子
--   uri_samples: 
-        - http://ds.rois.ac.jp/caselaw/resource/D020518,休職処分取消事件
-        - http://ds.rois.ac.jp/caselaw/resource/C昭和62あ1351,ロッキード事件
-        - http://ds.rois.ac.jp/caselaw/resource/尾島明,尾島明（裁判官）
-        - http://ds.rois.ac.jp/caselaw/resource/平木正洋,平木正洋（裁判官）
-        - http://ds.rois.ac.jp/caselaw/resource/富士通株式会社,富士通株式会社
-        - http://lod4all.net/law/resource/332AC0000000026_70-4,租税特別措置法第七十条の四
-        - http://ds.rois.ac.jp/caselaw/resource/パロディー写真,パロディー写真
-        - http://ds.rois.ac.jp/caselaw/resource/CaseCategory_配チ,配偶者暴力に関する保護命令事件
-        - http://ds.rois.ac.jp/caselaw/ontology/Case,事件
-        - http://ds.rois.ac.jp/caselaw/ontology/CaseLawDocument,判決文書
+-   prefixes:
+        caselawo: "http://ds.rois.ac.jp/caselaw/ontology/"
+        caselawp: "http://ds.rois.ac.jp/caselaw/property/"
+        dcterms: "http://purl.org/dc/terms/"
+        dct: "http://purl.org/dc/terms/"
+        dc: "http://purl.org/dc/elements/1.1/"
+        foaf: "http://xmlns.com/foaf/0.1/"
+        lawp: "http://lod4all.net/law/property/"
+        prism: "http://prismstandard.org/namespaces/basic/2.0/"
+        time: "http://www.w3.org/2006/time#"
+-   sample:
+        search:
+            - 宮川美津子
+        resource:
+            - http://ds.rois.ac.jp/caselaw/resource/D020518,休職処分取消事件
+            - http://ds.rois.ac.jp/caselaw/resource/C昭和62あ1351,ロッキード事件
+            - http://ds.rois.ac.jp/caselaw/resource/尾島明,尾島明（裁判官）
+            - http://ds.rois.ac.jp/caselaw/resource/平木正洋,平木正洋（裁判官）
+            - http://ds.rois.ac.jp/caselaw/resource/富士通株式会社,富士通株式会社
+            - http://lod4all.net/law/resource/332AC0000000026_70-4,租税特別措置法第七十条の四
+            - http://ds.rois.ac.jp/caselaw/resource/パロディー写真,パロディー写真
+            - http://ds.rois.ac.jp/caselaw/resource/CaseCategory_配チ,配偶者暴力に関する保護命令事件
+            - http://ds.rois.ac.jp/caselaw/ontology/Case,事件（クラス）
+            - http://ds.rois.ac.jp/caselaw/ontology/CaseLawDocument,判決文書（クラス）
+        collection:
+            - http://ds.rois.ac.jp/caselaw/ontology/CaseLawDocument,判決文書
+            - http://ds.rois.ac.jp/caselaw/ontology/Case,事件
 -   priority:
         - http://ds.rois.ac.jp/caselaw/ontology/Person
         - http://ds.rois.ac.jp/caselaw/ontology/CaseClass
@@ -105,12 +119,6 @@
         - Out
         - In
 -   def: page
-    name: CaseCategory_collection
-    type: http://ds.rois.ac.jp/caselaw/ontology/CaseCategory
-    gadget:
-        - CaseCategoryFacetCourt_collection
-        - CaseCategoryFacetResult
--   def: page
     name: CaseClass
     type: http://ds.rois.ac.jp/caselaw/ontology/CaseClass
     gadget:
@@ -118,6 +126,7 @@
 -   def: page
     name: Class
     type: http://www.w3.org/2002/07/owl#Class
+    collection: instances
     gadget:
         - Out
         - ClassStatistics
@@ -144,8 +153,6 @@
     type: http://ds.rois.ac.jp/caselaw/ontology/JudicalOpinionStruct
     gadget:
         - HasJudicalOpinionStruct
-        - JudicalOpinionStruct
-        - JudicalOpinionStructPie
         - LinksForCaseLawDocument
 -   def: page
     name: Resource
@@ -153,21 +160,12 @@
     gadget:
         - Out
         - In
--   def: page
-    name: CaseLawDocument's Collection
-    type: http://ds.rois.ac.jp/caselaw/ontology/CaseLawDocument
-    gadget:
-        - Statistics
 -   def: gadget
     name: CaseLawInfo
     height: 700
     get:
         type: sparql
         src: |
-            prefix caselawp: <http://ds.rois.ac.jp/caselaw/property/>
-            prefix caselawo: <http://ds.rois.ac.jp/caselaw/ontology/>
-            prefix foaf: <http://xmlns.com/foaf/0.1/>
-            prefix dcterms: <http://purl.org/dc/terms/>
             select ?caseno ?casename ?casecategory ?casecategorylabel ?holding ?headnote ?court ?judgmentdate ?result ?category ?pdf ?id ?year ?npages where {
             graph <http://ds.rois.ac.jp/caselaw/> {
                 $uri caselawp:id ?id .
@@ -224,17 +222,12 @@
               label: HTML文書
               type: directlink
               string: "HTML文書"
-              href: "http://localhost:8000/data/html/?year/?{id}_hanrei.html"
+              href: "/data/?year/?{id}_hanrei.html"
 -   def: gadget
     name: DocInfo
     get:
         type: sparql
         src: |
-            prefix caselawp: <http://ds.rois.ac.jp/caselaw/property/>
-            prefix caselawo: <http://ds.rois.ac.jp/caselaw/ontology/>
-            prefix foaf: <http://xmlns.com/foaf/0.1/>
-            prefix dcterms: <http://purl.org/dc/terms/>
-            prefix prism: <http://prismstandard.org/namespaces/basic/2.0/>
             select ?npages ?ndiv ?nspan ?nbr ?ntext ?stpat ?producer ?creator ?creationdate ?moddate where {
             graph <http://ds.rois.ac.jp/caselaw/> {
                 $uri caselawp:id ?id .
@@ -279,9 +272,6 @@
     get:
         type: sparql
         src: |
-            prefix caselawp: <http://ds.rois.ac.jp/caselaw/property/>
-            prefix foaf: <http://xmlns.com/foaf/0.1/>
-            prefix lawp: <http://lod4all.net/law/property/>
             select ?sameas ?abstract where {
             graph <http://ds.rois.ac.jp/caselaw/> {
                 $uri rdfs:label ?label .
@@ -304,9 +294,6 @@
     get:
         type: sparql
         src: |
-            prefix caselawp: <http://ds.rois.ac.jp/caselaw/property/>
-            prefix foaf: <http://xmlns.com/foaf/0.1/>
-            prefix lawp: <http://lod4all.net/law/property/>
             select distinct ?person where {
             graph <http://ds.rois.ac.jp/caselaw/> {
                 [] caselawp:role $uri;
@@ -323,9 +310,6 @@
     get:
         type: sparql
         src: |
-            prefix caselawp: <http://ds.rois.ac.jp/caselaw/property/>
-            prefix foaf: <http://xmlns.com/foaf/0.1/>
-            prefix lawp: <http://lod4all.net/law/property/>
             select ?label ?lawNum ?lawid ?lawType ?del_flg ?elaws where {
             graph <http://ds.rois.ac.jp/caselaw/> {
                 $uri rdfs:label ?label ;
@@ -357,10 +341,6 @@
     get:
         type: sparql
         src: |
-            prefix caselawp: <http://ds.rois.ac.jp/caselaw/property/>
-            prefix foaf: <http://xmlns.com/foaf/0.1/>
-            prefix lawp: <http://lod4all.net/law/property/>
-            prefix dc: <http://purl.org/dc/elements/1.1/>
             select ?label ?link ?title ?description where {
             graph <http://ds.rois.ac.jp/caselaw/> {
                 $uri rdfs:label ?label;
@@ -391,14 +371,11 @@
     get:
         type: sparql
         src: |
-            prefix dc: <http://purl.org/dc/terms/>
-            prefix caselawp: <http://ds.rois.ac.jp/caselaw/property/>
-            prefix caselawo: <http://ds.rois.ac.jp/caselaw/ontology/>
             select ?term where {
             graph <http://ds.rois.ac.jp/caselaw/> {
                 $uri caselawp:id ?id .
                 ?docid a caselawo:CaseLawDocument; caselawp:id ?id .
-                ?docid dc:subject ?term .
+                ?docid dcterms:subject ?term .
             }}
     show: 
         type: htable
@@ -412,8 +389,6 @@
     get:
         type: sparql
         src: |
-            prefix caselawp: <http://ds.rois.ac.jp/caselaw/property/>
-            prefix caselawo: <http://ds.rois.ac.jp/caselaw/ontology/>
             select ?legislation ?label where {
             graph <http://ds.rois.ac.jp/caselaw/> {
                 $uri caselawp:id ?id .
@@ -435,9 +410,6 @@
     get:
         type: sparql
         src: |
-            prefix caselawp: <http://ds.rois.ac.jp/caselaw/property/>
-            prefix caselawo: <http://ds.rois.ac.jp/caselaw/ontology/>
-            prefix time: <http://www.w3.org/2006/time#>
             select ?ptype ?duration ?suspend where {
             graph <http://ds.rois.ac.jp/caselaw/> {
                 $uri caselawp:id ?id .
@@ -464,8 +436,6 @@
     get:
         type: sparql
         src: |
-            prefix caselawp: <http://ds.rois.ac.jp/caselaw/property/>
-            prefix caselawo: <http://ds.rois.ac.jp/caselaw/ontology/>
             select ?patent ?label where {
             graph <http://ds.rois.ac.jp/caselaw/> {
                 $uri caselawp:id ?id .
@@ -485,7 +455,6 @@
     get:
         type: sparql
         src: |
-            prefix dct: <http://purl.org/dc/terms/>
             select ?doc ?label where {
             graph <http://ds.rois.ac.jp/caselaw/> {
                 ?doc dct:subject $uri ;
@@ -503,7 +472,6 @@
     get:
         type: sparql
         src: |
-            prefix caselawp: <http://ds.rois.ac.jp/caselaw/property/>
             select ?doc ?label where {
             graph <http://ds.rois.ac.jp/caselaw/> {
                 ?doc caselawp:reflaw $uri ;
@@ -521,7 +489,6 @@
     get:
         type: sparql
         src: |
-            prefix caselawp: <http://ds.rois.ac.jp/caselaw/property/>
             select ?doc ?label where {
             graph <http://ds.rois.ac.jp/caselaw/> {
                 ?doc caselawp:refpatent $uri ;
@@ -539,7 +506,6 @@
     get:
         type: sparql
         src: |
-            prefix caselawp: <http://ds.rois.ac.jp/caselaw/property/>
             select ?doc ?label where {
             graph <http://ds.rois.ac.jp/caselaw/> {
                 ?doc caselawp:case $uri ;
@@ -557,8 +523,6 @@
     get:
         type: sparql
         src: |
-            prefix caselawp: <http://ds.rois.ac.jp/caselaw/property/>
-            prefix caselawo: <http://ds.rois.ac.jp/caselaw/ontology/>
             select ?role ?person where {
             graph <http://ds.rois.ac.jp/caselaw/> {
                 $uri caselawp:id ?id .
@@ -582,8 +546,6 @@
     get:
         type: sparql
         src: |
-            prefix caselawp: <http://ds.rois.ac.jp/caselaw/property/>
-            prefix caselawo: <http://ds.rois.ac.jp/caselaw/ontology/>
             select ?role ?person where {
             graph <http://ds.rois.ac.jp/caselaw/> {
                 $uri caselawp:id ?id .
@@ -609,7 +571,6 @@
     get:
         type: sparql
         src: |
-            prefix caselawp: <http://ds.rois.ac.jp/caselaw/property/>
             select distinct ?caseno ?casename ?role ?judge where {
             graph <http://ds.rois.ac.jp/caselaw/> {
                 ?personrole caselawp:person $uri; caselawp:role ?role.
@@ -634,26 +595,6 @@
     get:
         type: sparql
         src: |
-            prefix caselawp: <http://ds.rois.ac.jp/caselaw/property/>
-            prefix caselawo: <http://ds.rois.ac.jp/caselaw/ontology/>
-            select ?obj (count(?obj) as ?count) where {
-                ?subj caselawp:casecategory $uri.
-                OPTIONAL {?subj caselawp:court ?obj}
-            } GROUP BY ?obj ORDER BY DESC(?count)
-    show: 
-        type: htable
-        columns:
-            - id: obj
-              display: localname
-              width: 200
-            - id: count
--   def: gadget
-    name: CaseCategoryFacetCourt_collection
-    get:
-        type: sparql
-        src: |
-            prefix caselawp: <http://ds.rois.ac.jp/caselaw/property/>
-            prefix caselawo: <http://ds.rois.ac.jp/caselaw/ontology/>
             select ?obj (count(?obj) as ?count) where {
                 ?subj caselawp:casecategory $uri.
                 OPTIONAL {?subj caselawp:court ?obj}
@@ -670,8 +611,6 @@
     get:
         type: sparql
         src: |
-            prefix caselawp: <http://ds.rois.ac.jp/caselaw/property/>
-            prefix caselawo: <http://ds.rois.ac.jp/caselaw/ontology/>
             select ?obj (count(?obj) as ?count) where {
                 ?trialid caselawp:casecategory $uri.
                 ?trialid a caselawo:Trial; caselawp:id ?id .
@@ -690,7 +629,6 @@
     get:
         type: sparql
         src: |
-            prefix caselawp: <http://ds.rois.ac.jp/caselaw/property/>
             select (count(?subj) as ?count) where {
             graph <http://ds.rois.ac.jp/caselaw/> {
                 ?subj a $uri .
@@ -706,7 +644,6 @@
     get:
         type: sparql
         src: |
-            prefix caselawp: <http://ds.rois.ac.jp/caselaw/property/>
             select ?case ?name where {
             graph <http://ds.rois.ac.jp/caselaw/> {
                 ?case a $uri;
@@ -724,7 +661,6 @@
     get:
         type: sparql
         src: |
-            prefix caselawp: <http://ds.rois.ac.jp/caselaw/property/>
             select ?subj ?label where {
             graph <http://ds.rois.ac.jp/caselaw/> {
                 ?subj a $uri;
@@ -754,7 +690,6 @@
     get:
         type: sparql
         src: |
-            prefix ctdv: <http://bio2rdf.org/ctd_vocabulary:>
             select ?s ?p where {
             graph <http://ds.rois.ac.jp/caselaw/> {
                 ?s ?p $uri}
@@ -766,7 +701,6 @@
     get:
         type: sparql
         src: |
-            prefix caselawp: <http://ds.rois.ac.jp/caselaw/property/>
             select ?label ?category ?caseno ?title ?date ?author ?result ?pdf where {
             graph <http://ds.rois.ac.jp/caselaw/> {
                 $uri rdfs:label ?label;
@@ -781,50 +715,14 @@
     show: 
         type: vtable
 -   def: gadget
-    name: Relations_in_Disease
-    get:
-        type: sparql
-        src: |
-            prefix ctdv: <http://bio2rdf.org/ctd_vocabulary:>
-            select distinct ?Chemical ?Disease ?Gene where {
-              values ?Chemical {$uri}
-              {?cd a ctdv:Chemical-Disease-Association;
-                   ctdv:chemical ?Chemical;
-                   ctdv:disease ?Disease.}
-              UNION
-              {?gd a ctdv:Gene-Disease-Association;
-                   ctdv:disease ?Disease;
-                   ctdv:gene ?Gene}
-              UNION
-              {?cd a ctdv:Chemical-Disease-Association;
-                   ctdv:chemical $uri;
-                   ctdv:disease ?Disease.
-               ?cd2 a ctdv:Chemical-Gene-Association;
-                   ctdv:chemical ?Chemical;
-                   ctdv:disease ?Disease.
-                   }
-            }
-    show: 
-        type: network
-        node:
-            - id: Chemical
-            - id: Disease
-            - id: Gene
-        edge:
-            - Chemical, Gene
-            - Chemical, Disease
--   def: gadget
     name: PageFrequencyDistribution
     get:
         type: sparql
         src: |
-            prefix dcterms: <http://purl.org/dc/terms/>
-            prefix caselawo: <http://ds.rois.ac.jp/caselaw/ontology/> 
             SELECT ?npages (COUNT(?npages) AS ?count)
             WHERE {
-            ?doc a caselawo:CaseLawDocument ;
-                $snippet
-                dcterms:extent ?npages .
+                $collection
+                ?entity dcterms:extent ?npages .
             }
             GROUP BY ?npages
             ORDER BY ?npages
@@ -842,13 +740,10 @@
     get:
         type: sparql
         src: |
-            prefix dcterms: <http://purl.org/dc/terms/>
-            prefix caselawo: <http://ds.rois.ac.jp/caselaw/ontology/> 
             SELECT ?npages (COUNT(?npages) AS ?count)
             WHERE {
-            ?doc a caselawo:CaseLawDocument ;
-                $snippet
-                dcterms:extent ?npages .
+                $collection
+                ?entity dcterms:extent ?npages .
             }
             GROUP BY ?npages
             ORDER BY ?npages
@@ -862,13 +757,10 @@
     get:
         type: sparql
         src: |
-            prefix caselawp: <http://ds.rois.ac.jp/caselaw/property/> 
-            prefix caselawo: <http://ds.rois.ac.jp/caselaw/ontology/> 
             SELECT ?structpat (COUNT(?structpat) AS ?count)
             WHERE {
-            ?doc a caselawo:CaseLawDocument ;
-                $snippet
-                caselawp:judicalopstruct ?structpat .
+                $collection
+                ?entity caselawp:judicalopstruct ?structpat .
             }
             GROUP BY ?structpat
             ORDER BY DESC(?count)
@@ -887,8 +779,6 @@
     get:
         type: sparql
         src: |
-            prefix caselawp: <http://ds.rois.ac.jp/caselaw/property/> 
-            prefix caselawo: <http://ds.rois.ac.jp/caselaw/ontology/> 
             SELECT ?doc
             WHERE {
             $uri a caselawo:JudicalOpinionStruct. 
@@ -904,13 +794,10 @@
     get:
         type: sparql
         src: |
-            prefix caselawp: <http://ds.rois.ac.jp/caselaw/property/> 
-            prefix caselawo: <http://ds.rois.ac.jp/caselaw/ontology/> 
             SELECT ?structpat (COUNT(?structpat) AS ?count)
             WHERE {
-            ?doc a caselawo:CaseLawDocument ;
-                $snippet
-                caselawp:judicalopstruct ?structpat .
+                $collection
+                ?entity caselawp:judicalopstruct ?structpat .
             }
             GROUP BY ?structpat
             ORDER BY DESC(?count)
@@ -925,19 +812,107 @@
         type: list
         header: name, uri
         src: |
-            構造パターン,http://localhost:8000/statistics?focus=JudicalOpinionStruct
-            PDFページ数分布,http://localhost:8000/statistics?focus=PageFrequencyDistribution
+            判決文書の一覧,/collection?class=http%3A%2F%2Fds.rois.ac.jp%2Fcaselaw%2Fontology%2FCaseLawDocument&tab=0
+            PDFページ数分布,/collection?class=http%3A%2F%2Fds.rois.ac.jp%2Fcaselaw%2Fontology%2FCaseLawDocument&tab=1
+            構造パターン,/collection?class=http%3A%2F%2Fds.rois.ac.jp%2Fcaselaw%2Fontology%2FCaseLawDocument&tab=2
     show: 
         type: htable
+        columns:
+            - id: name
+              label: 判決文書の統計
+              type: directlink
+              href: "?uri"
+              width: 300
 -   def: page
-    name: PageFrequencyDistribution
-    type: http://ds.rois.ac.jp/caselaw/ontology/PageFrequencyDistribution
-    gadget:
-        - PageFrequencyDistribution
-        - PageFrequencyDistributionBar
-        - LinksForCaseLawDocument
-    filter:
-        - label: 訴訟類型
-          predicate: http://ds.rois.ac.jp/caselaw/property/訴訟類型
-          type: select
-          select: 行政訴訟,民事訴訟,民事仮処分
+    name: CaseLawDocuments
+    type: collection
+    class: caselawo:CaseLawDocument
+    sidebar:
+        - facet_suit_type
+        - facet_caselaw_category
+        - facet_year
+    tabs:
+        - label: 一覧
+          gadget:
+            - CaseLawDocumentList
+        - label: PDFページ数分布
+          gadget:
+            - PageFrequencyDistributionBar
+            - PageFrequencyDistribution
+        - label: 構造パターン
+          gadget:
+            - JudicalOpinionStructPie
+            - JudicalOpinionStruct
+-   def: gadget
+    name: CaseLawDocumentList
+    title: 判決文書
+    get:
+        type: sparql
+        page_size: 50
+        src: |
+            SELECT ?entity ?id ?casename ?suit ?year ?npages
+            WHERE {
+                $collection
+                ?entity caselawp:id ?id .
+                OPTIONAL { ?entity caselawp:year ?year }
+                OPTIONAL { ?entity dcterms:extent ?npages }
+                OPTIONAL { ?entity caselawp:訴訟類型 ?suit }
+                OPTIONAL {
+                    ?trial a caselawo:Trial ;
+                           caselawp:id ?id ;
+                           caselawp:casename ?casename .
+                }
+            }
+    show:
+        type: htable
+        group_by: entity
+        columns:
+            - id: entity
+              type: link
+              string: "?id"
+              label: ID
+              width: 120
+            - id: casename
+              label: 事件名
+              width: 360
+            - id: suit
+              label: 訴訟類型
+              width: 100
+            - id: year
+              label: 年
+              width: 60
+            - id: npages
+              label: ページ数
+              width: 70
+-   def: gadget
+    name: facet_suit_type
+    get:
+        type: facet
+        name: suit_type
+        label: 訴訟類型
+        predicate: caselawp:訴訟類型
+        value_type: literal
+    show:
+        type: facet
+-   def: gadget
+    name: facet_caselaw_category
+    get:
+        type: facet
+        name: category
+        label: 判例カテゴリ
+        predicate: caselawp:caselawcategory
+        limit: 30
+    show:
+        type: facet
+-   def: gadget
+    name: facet_year
+    get:
+        type: facet
+        kind: range
+        name: year
+        label: 年
+        predicate: caselawp:year
+        datatype: integer
+        bins: 20
+    show:
+        type: facet

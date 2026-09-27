@@ -143,9 +143,6 @@ def prepare_columns(content, columns):
         # width のデフォルト
         if col["type"] == "image":
             col.setdefault("width", 120)
-        # directlink の補完
-        if col["type"] == "directlink":
-            col.setdefault("href", lambda value: value)
         result.append(col)
     return result
 
@@ -547,12 +544,22 @@ class Pages:
                 classes = [classes]
             if not isinstance(classes, list) or not all(isinstance(c, str) for c in classes):
                 raise ConfigError(f"page({name})のclassは文字列またはリストで指定してください")
+        sidebar = config.get("sidebar")
+        if sidebar is not None and (
+            not isinstance(sidebar, list) or not all(isinstance(g, str) for g in sidebar)
+        ):
+            raise ConfigError(f"page({name})のsidebarはガジェット名のリストで指定してください")
+        page_collection = config.get("collection")
+        if page_collection not in (None, "instances"):
+            raise ConfigError(f"page({name})のcollectionには instances だけが指定できます: {page_collection!r}")
         self.pagedict[name] = {
             "type": page_type,
             "gadget": gadget,
             "tabs": tabs,
             "query": config.get("query"),
             "class": list(classes) if classes else [],
+            "sidebar": list(sidebar) if sidebar else [],
+            "collection": page_collection,
         }
         self.config = config
 
@@ -925,6 +932,10 @@ class Application:
                 params=params,
                 query=page_def.get("query"),
             )
+        elif page_def.get("collection") == "instances" and uri:
+            # リソース（クラス）のページで、そのクラスのインスタンスをコレクションにする
+            collection = Collection.from_class(self.sparql_client, uri)
+        if collection is not None:
             # URLで指定されたFacet条件で絞り込み、ページ内のGadgetで共有する
             collection = self.apply_collection_filters(collection, params)
         logger.debug(
@@ -935,12 +946,25 @@ class Application:
         if collection is not None:
             header = [self.make_collection_header(collection, params)]
         tabs = page_def.get("tabs")
-        if not tabs:
-            gadget_list = page_def["gadget"]
-            if collection is None:
-                return [self.make_gadget(gadget_name, uri, params=params, collection=collection) for gadget_name in gadget_list]
-            return header + [self.make_gadgets(gadget_list, uri, params=params, collection=collection)]
-        return header + self.make_page_tabs(page, uri, tabs, params=params, collection=collection)
+        if tabs:
+            body = self.make_page_tabs(page, uri, tabs, params=params, collection=collection)
+        elif collection is None:
+            body = [self.make_gadget(gadget_name, uri, params=params, collection=collection) for gadget_name in page_def["gadget"]]
+        else:
+            body = [self.make_gadgets(page_def["gadget"], uri, params=params, collection=collection)]
+        sidebar = page_def.get("sidebar") or []
+        if sidebar:
+            aside = "\n".join(
+                self.make_gadget(gadget_name, uri, params=params, collection=collection)
+                for gadget_name in sidebar
+            )
+            body = [
+                '<div class="collection-layout">'
+                f'<aside class="facet-column">{aside}</aside>'
+                '<div class="main-column">' + "\n".join(body) + "</div>"
+                "</div>"
+            ]
+        return header + body
 
     def make_collection_header(self, collection, params):
         """コレクションのページの先頭に、件数と現在の絞り込み条件を表示する。"""
@@ -1144,6 +1168,9 @@ def setconfig(config, base_dir=None):
         """pageから参照されるgadgetの存在を検証する。"""
         errors = set()
         for page_name, page in pages.pagedict.items():
+            for gadget_name in page.get("sidebar") or []:
+                if gadget_name not in gadgetset:
+                    errors.add(f"page({page_name}) sidebar -> gadget({gadget_name})")
             for gadget_name in page.get("gadget") or []:
                 if gadget_name not in gadgetset:
                     errors.add(f"page({page_name}) -> gadget({gadget_name})")
@@ -1233,6 +1260,8 @@ def setconfig(config, base_dir=None):
         "gadget", # 表示するガジェット
         "tabs", # ガジェットをタブで分類
         "class", # コレクションのページが対象とするRDFクラス
+        "sidebar", # 左の列に置くガジェット（ファセットなど）。gadget / tabs の横に表示
+        "collection", # instances: リソースのページで、そのリソース（クラス）のインスタンスをコレクションにする
     }
     GADGET_KEYS = {
         "def",

@@ -11,6 +11,8 @@
 """
 
 import re
+import json
+import uuid
 import logging
 import heapq
 import random
@@ -167,14 +169,13 @@ def get_item_data(column, record):
         "value": value,
         "type": item_type,
     }
-    # リンク
-    if item_type == "link":
+    # リンク（設定の href があればそれを優先する）
+    if column.get("href"):
+        cell["href"] = get_column_href(column, record)
+    elif item_type == "link":
         cell["href"] = make_resource_url(data)
     elif item_type == "directlink":
         cell["href"] = make_external_url(data)
-
-    elif column.get("href"):
-        cell["href"] = get_column_href(column, record)
     return key, cell
 
 def get_record_cells(record, columns=None):
@@ -394,35 +395,50 @@ def show_facet(rows, config, height=None):
 # Chart rendering
 # --------------------------------------------------
 def show_chart(pairs, show_method):
-    """棒グラフ/パイチャートの描画
+    """棒グラフ/円グラフの描画（Chart.js）
+
+    ページに複数のグラフがあっても衝突しないよう、グラフごとに固有の canvas を使う。
+    Chart.js はページの先頭で読み込む（makehtml の LIBRARIES["chartjs"]）。
     """
-    def getarg(args, prop, default=None):
-        if prop not in args:
-            return default
-        return args[prop]
-
-    # テンプレートデータ
+    if not pairs:
+        return ""
+    chart_type = show_method.get("chart", "bar")
+    labels = show_method["labels"]
+    dataset = show_method["dataset"]
     data = {
-        'datasets': [{
-            'label': '',
-            'backgroundColor': 'rgba(75, 192, 192, 0.2)',
-            'borderColor': 'rgba(75, 192, 192, 1)',
-            'borderWidth': 1
-        }]
+        "labels": [get_localname(val[labels]["value"]) if show_method.get("display") == "localname"
+                   else val[labels]["value"] for val in pairs if labels in val],
+        "datasets": [{
+            "label": show_method.get("label", dataset),
+            "data": [val[dataset]["value"] for val in pairs if labels in val],
+            "backgroundColor": "rgba(42, 120, 214, 0.75)",
+            "borderWidth": 0,
+        }],
     }
-
-    if pairs:
-        chart_type = getarg(show_method, 'chart', 'bar')
-        labels = show_method['labels']
-        dataset = show_method['dataset']
-        data['labels'] = [val[labels]['value'] for val in pairs]
-        data['datasets'][0]['data'] = [val[dataset]['value'] for val in pairs]
-        if chart_type == 'pie':
-            color_seq = [f'rgba{generate_random_rgb()}' for _ in range(len(pairs))]
-            logger.debug("color_seq=%s", color_seq)
-            data['datasets'][0]['backgroundColor'] = color_seq
-        return render_template('chart.html', data=data, chart_type=chart_type)
-    return None
+    if chart_type == "pie":
+        data["datasets"][0]["backgroundColor"] = [
+            f"rgba{generate_random_rgb()}" for _ in data["labels"]
+        ]
+    chart_id = f"chart_{uuid.uuid4().hex[:8]}"
+    config = {
+        "type": chart_type,
+        "data": data,
+        "options": {
+            "responsive": True,
+            "maintainAspectRatio": False,
+            "plugins": {"legend": {"display": chart_type == "pie", "position": "right"}},
+        },
+    }
+    height = int(show_method.get("height", 320))
+    return (
+        f'<div class="chart" style="position:relative;height:{height}px;max-width:900px">'
+        f'<canvas id="{chart_id}"></canvas></div>\n'
+        "<script>\n"
+        "window.addEventListener('load', function () {\n"
+        f"  new Chart(document.getElementById('{chart_id}'), {json.dumps(config, ensure_ascii=False)});\n"
+        "});\n"
+        "</script>"
+    )
 
 # --------------------------------------------------
 # Network rendering

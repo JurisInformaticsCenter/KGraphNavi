@@ -80,9 +80,13 @@ JSGRID_DEFAULT_HEIGHT = 450
 JSGRID_PADDING = 50
 
 FIELDS = 'fields: [ {} ]'
+CHARTJS = """    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+"""
+
 LIBRARIES = {
     "jsgrid": JSGRID,
     "cytoscape": CYTOSCAPE,
+    "chartjs": CHARTJS,
 }
 
 def make_html(content, title="タイトル", navi="", libraries=None, category=None):

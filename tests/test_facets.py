@@ -495,6 +495,8 @@ def test_render_range_facet():
     assert html.count("<path") == 3      # 件数 0 の区間は棒を描かない
     assert "#b5cdee" in html              # 範囲外の棒
     assert "クリア" in html
+    # 軸の両端は実際の最小値・最大値
+    assert ">2000</text>" in html and ">2003</text>" in html
 
 
 def test_render_range_facet_date_inputs_and_empty():
@@ -538,3 +540,29 @@ def test_render_conditions_one_sided_range():
     assert "2000 以上" in render_conditions(params, {})
     params = request_params(MultiDict([("f.year.max", "2010")]), path="/collection")
     assert "2010 以下" in render_conditions(params, {})
+
+
+# --------------------------------------------------
+# 表のリンク列
+# --------------------------------------------------
+
+def test_link_columns():
+    from kgraphnavi.app import prepare_columns
+    from kgraphnavi.render_utils import get_record_cells
+
+    record = {
+        "id": {"type": "literal", "value": "D020518"},
+        "year": {"type": "literal", "value": "2003"},
+        "home": {"type": "uri", "value": "https://example.org/"},
+        "doc": {"type": "uri", "value": "http://example.org/doc/1"},
+    }
+    columns = prepare_columns([record], [
+        {"id": "home", "type": "directlink"},
+        {"id": "year", "type": "directlink", "string": "HTML文書", "href": "/data/?year/?{id}_hanrei.html"},
+        {"id": "doc", "type": "link"},
+    ])
+    cells = get_record_cells(record, columns)
+    assert cells["home"]["href"] == "https://example.org/"
+    # 設定の href があればそれを使う
+    assert cells["year"] == {"value": "HTML文書", "type": "directlink", "href": "/data/2003/D020518_hanrei.html"}
+    assert cells["doc"]["href"] == "/resource?uri=http%3A%2F%2Fexample.org%2Fdoc%2F1"

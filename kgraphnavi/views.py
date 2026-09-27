@@ -44,7 +44,7 @@ def render_page(
         page_body,
         title,
         navi=application.navi,
-        libraries=["jsgrid", "cytoscape"],
+        libraries=["jsgrid", "cytoscape", "chartjs"],
         category=category or page_name,
     )
     return Response(html, mimetype="text/html")

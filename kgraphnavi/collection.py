@@ -55,6 +55,23 @@ def _indent(text, spaces=4):
     return "\n".join(pad + line if line.strip() else line for line in text.splitlines())
 
 
+def numeric_expression(datatype=None, unit=None, var="?_v"):
+    """範囲ファセットで値 var を数値にする SPARQL の式を返す。
+
+    日付（date / dateTime）や unit="year" は年、gYear は先頭4桁、それ以外は decimal。
+    文字列として格納された値（"2003" など）も数値に変換して扱う。
+    """
+    if unit == "year" or datatype in ("date", "dateTime"):
+        return f"YEAR({var})"
+    if datatype == "gYear":
+        return f"<{XSD}integer>(SUBSTR(STR({var}), 1, 4))"
+    return f"<{XSD}decimal>({var})"
+
+
+# 範囲の比較を数値で行うデータ型（それ以外の date / dateTime は日付として比較する）
+NUMERIC_DATATYPES = ("integer", "decimal", "double", "gYear")
+
+
 # --------------------------------------------------
 # 絞り込み条件
 # --------------------------------------------------
@@ -141,11 +158,17 @@ class RangeCondition:
         predicate_term(self.predicate)
         self._bounds()
 
+    def _numeric(self):
+        """数値として比較するか（unit: year、または数値のデータ型）"""
+        return self.unit == "year" or self.datatype in NUMERIC_DATATYPES
+
     def _bound(self, value):
         if value in (None, ""):
             return None
         if self.unit == "year":
             return number_term(value)
+        if self._numeric():
+            return number_term(normalize_typed_value(value, self.datatype))
         return typed_term(value, self.datatype)
 
     def _bounds(self):
@@ -154,7 +177,11 @@ class RangeCondition:
     def pattern(self, var, index):
         predicate = predicate_term(self.predicate)
         value_var = f"?_c{index}"
-        subject = f"YEAR({value_var})" if self.unit == "year" else value_var
+        if self._numeric():
+            # 文字列で格納された値も数値に変換して比較する（変換できない値は条件を満たさない）
+            subject = numeric_expression(self.datatype, self.unit, value_var)
+        else:
+            subject = f"<{XSD}{self.datatype}>({value_var})"
         low, high = self._bounds()
         tests = []
         if low is not None:
@@ -165,18 +192,6 @@ class RangeCondition:
             f"{var} {predicate} {value_var} .\n"
             f"FILTER({' && '.join(tests)})"
         )
-
-
-def numeric_expression(datatype=None, unit=None):
-    """範囲ファセットで値 ?_v を数値にする SPARQL の式を返す。
-
-    日付（date / dateTime）や unit="year" は年、gYear は先頭4桁、それ以外は decimal。
-    """
-    if unit == "year" or datatype in ("date", "dateTime"):
-        return "YEAR(?_v)"
-    if datatype == "gYear":
-        return f"<{XSD}integer>(SUBSTR(STR(?_v), 1, 4))"
-    return f"<{XSD}decimal>(?_v)"
 
 
 # --------------------------------------------------

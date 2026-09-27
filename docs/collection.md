@@ -24,6 +24,35 @@
 - ページの先頭に、件数と現在の絞り込み条件が表示されます。条件の ✕ で、その条件を外せます。
 - `gadget` の代わりに `tabs` も使えます。選んだタブは URL（`tab=番号`）に残ります。
 
+### ファセットを左の列に置く（sidebar）
+
+`sidebar:` に書いたガジェットは、`gadget` / `tabs` の左の列に表示します。タブを切り替えても、絞り込みの条件は共通です。
+
+```yaml
+- def: page
+  name: CaseLawDocuments
+  type: collection
+  class: caselawo:CaseLawDocument
+  sidebar: [facet_suit_type, facet_year]
+  tabs:
+    - label: 一覧
+      gadget: [CaseLawDocumentList]
+    - label: PDFページ数分布
+      gadget: [PageFrequencyDistributionBar]
+```
+
+### クラスのリソースのページでインスタンスを集計する（collection: instances）
+
+`/resource` のページ（`type` にRDFクラスを指定したページ）で `collection: instances` を指定すると、表示しているリソースをクラスとみなし、そのインスタンスをコレクションにします。`$collection` を使うガジェット（統計など）をクラスのページで使えます。
+
+```yaml
+- def: page
+  name: Class
+  type: http://www.w3.org/2002/07/owl#Class
+  collection: instances
+  gadget: [Out, PageFrequencyDistributionBar]
+```
+
 ### ページの選び方
 
 `/collection?class=<クラス>` では、次の順でページを選びます。

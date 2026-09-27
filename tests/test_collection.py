@@ -279,9 +279,10 @@ def test_filter_range_numeric():
     ).get_uris()
     query, _ = sparql.calls[0]
     assert "?uri dbo:elevation ?_c0 ." in query
+    # 文字列で格納された値も数値に変換して比較する
     assert (
-        'FILTER(?_c0 >= "1000"^^<http://www.w3.org/2001/XMLSchema#decimal> '
-        '&& ?_c0 <= "3000.5"^^<http://www.w3.org/2001/XMLSchema#decimal>)'
+        "FILTER(<http://www.w3.org/2001/XMLSchema#decimal>(?_c0) >= 1000 "
+        "&& <http://www.w3.org/2001/XMLSchema#decimal>(?_c0) <= 3000.5)"
     ) in query
 
 
@@ -291,7 +292,7 @@ def test_filter_range_one_side():
         "dbo:elevation", "integer", maximum=500
     ).get_uris()
     query, _ = sparql.calls[0]
-    assert 'FILTER(?_c0 <= "500"^^<http://www.w3.org/2001/XMLSchema#integer>)' in query
+    assert "FILTER(<http://www.w3.org/2001/XMLSchema#decimal>(?_c0) <= 500)" in query
 
 
 def test_filter_range_date():
@@ -300,8 +301,16 @@ def test_filter_range_date():
         "caselawp:判決日", "date", "2000-01-01", "2010-12-31"
     ).get_uris()
     query, _ = sparql.calls[0]
-    assert '?_c0 >= "2000-01-01"^^<http://www.w3.org/2001/XMLSchema#date>' in query
-    assert '?_c0 <= "2010-12-31"^^<http://www.w3.org/2001/XMLSchema#date>' in query
+    xsd_date = "<http://www.w3.org/2001/XMLSchema#date>"
+    assert f'{xsd_date}(?_c0) >= "2000-01-01"^^{xsd_date}' in query
+    assert f'{xsd_date}(?_c0) <= "2010-12-31"^^{xsd_date}' in query
+
+
+def test_filter_range_gyear():
+    sparql = DummySPARQL()
+    Collection.from_class(sparql, MOUNTAIN).filter_range("dbo:year", "gYear", "1990").get_uris()
+    query, _ = sparql.calls[0]
+    assert "SUBSTR(STR(?_c0), 1, 4)) >= 1990" in query
 
 
 def test_filter_range_year_unit():

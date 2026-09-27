@@ -10,4 +10,5 @@
 
 # /data/<path> で配信するフォルダ（判決HTMLなど）。~ と相対パス（このファイル基準）が使える
 # コマンドラインの --data-dir、環境変数 KGRAPHNAVI_DATA_DIR が優先
+# 判例データ（caselaw.yaml）では、<年>/<ID>_hanrei.html を置いたフォルダを指定する
 # - data_dir: ~/caselaw/html
