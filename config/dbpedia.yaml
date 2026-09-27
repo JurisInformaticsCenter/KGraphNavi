@@ -67,6 +67,7 @@
             }
     show:
         type: htable
+        group_by: entity
         columns:
         - id: entity
           type: link

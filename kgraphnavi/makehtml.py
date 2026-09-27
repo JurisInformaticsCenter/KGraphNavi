@@ -20,6 +20,39 @@ JSGRID = """    <link type="text/css" rel="stylesheet" href="https://cdnjs.cloud
     <link type="text/css" rel="stylesheet" href="/templates/css/default.css" />
     <link rel="icon" href="/favicon.ico" type="image/x-icon">
     <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jsgrid/1.5.3/jsgrid.min.js"></script>
+    <script>
+    // 表のセル {value, type, href} を描画する。type が multi のときは value が複数のセル
+    function kgRenderCell(cell, imageWidth) {
+        if (cell === null || cell === undefined) {
+            return "";
+        }
+        if (typeof cell !== "object") {
+            return $("<span>").text(cell);
+        }
+        var value = cell.value;
+        var type = cell.type || "literal";
+        if (type === "multi") {
+            var box = $("<span>").addClass("kg-multi");
+            (value || []).forEach(function (item, index) {
+                if (index > 0) {
+                    box.append(item.type === "image" ? " " : ", ");
+                }
+                box.append(kgRenderCell(item, imageWidth));
+            });
+            return box;
+        }
+        if (value === null || value === undefined || value === "") {
+            return "";
+        }
+        if (type === "image") {
+            return $("<img>").attr("src", value).attr("width", imageWidth);
+        }
+        if ((type === "link" || type === "directlink") && cell.href) {
+            return $("<a>").attr("href", cell.href).attr("target", "_top").text(value);
+        }
+        return $("<span>").text(value);
+    }
+    </script>
 """
 
 CYTOSCAPE = """    <script src="https://unpkg.com/cytoscape/dist/cytoscape.min.js"></script>
@@ -32,12 +65,14 @@ DATALIST = """
     ];
 """
 
+# 閲覧用の表なので、行の追加・編集はできないようにする
 GRIDDATA22 = """
         width: "100%",
-        inserting: true,
-        editing: true,
+        inserting: false,
+        editing: false,
         sorting: true,
-        paging: true,
+        paging: {paging},
+        pageSize: 20,
         data: datalist,
 """
 
@@ -68,8 +103,11 @@ def make_html(content, title="タイトル", navi="", libraries=None, category=N
         color=hash_color(category) if category else hash_color(title),
     )
 
-def make_jsgrid(gridid, data, header, columns, height):
-    """jsGrid 用の JavaScript 文字列を生成する"""
+def make_jsgrid(gridid, data, header, columns, height, paging=True):
+    """jsGrid 用の JavaScript 文字列を生成する
+
+    paging: jsGrid 自身のページ送りを使うか（KGraphNavi 側でページ送りする場合は False）
+    """
 
     def escape_js(value):
         if value is None:
@@ -124,7 +162,7 @@ def make_jsgrid(gridid, data, header, columns, height):
     
         name = column["id"]
         title = column.get("label", name)
-        width = column.get("width", 600)
+        width = int(column.get("width", 600))
     
         return f"""
     {{
@@ -133,35 +171,7 @@ def make_jsgrid(gridid, data, header, columns, height):
         width: {width},
     
         itemTemplate: function(cell) {{
-            if (cell === null || cell === undefined) {{
-                return "";
-            }}
-    
-            if (typeof cell !== "object") {{
-                return $("<span>").text(cell);
-            }}
-    
-            var value = cell.value;
-            var type = cell.type || "literal";
-    
-            if (value === null || value === undefined || value === "") {{
-                return "";
-            }}
-    
-            if (type === "image") {{
-                return $("<img>")
-                    .attr("src", value)
-                    .attr("width", {width});
-            }}
-    
-            if ((type === "link" || type === "directlink") && cell.href) {{
-                return $("<a>")
-                    .attr("href", cell.href)
-                    .attr("target", "_top")
-                    .text(value);
-            }}
-    
-            return $("<span>").text(value);
+            return kgRenderCell(cell, {width});
         }}
     }}
     """
@@ -184,11 +194,13 @@ def make_jsgrid(gridid, data, header, columns, height):
             for name in header
         )
 
-    jsgrid_height = (
-        height - JSGRID_PADDING
-        if height
-        else JSGRID_DEFAULT_HEIGHT
-    )
+    if not paging:
+        # ページ送りしない表は、行数に合わせた高さにする
+        jsgrid_height = "auto"
+    elif height:
+        jsgrid_height = f"{height - JSGRID_PADDING}px"
+    else:
+        jsgrid_height = f"{JSGRID_DEFAULT_HEIGHT}px"
 
     js = (
         GRIDDATA1
@@ -196,8 +208,8 @@ def make_jsgrid(gridid, data, header, columns, height):
         + f"""
 $("#{gridid}").jsGrid({{
 """
-        + GRIDDATA22
-        + f'height: "{jsgrid_height}px",\n'
+        + GRIDDATA22.format(paging="true" if paging else "false")
+        + f'height: "{jsgrid_height}",\n'
         + FIELDS.format(fields)
         + "});});"
     )
@@ -211,7 +223,7 @@ $("#{gridid}").jsGrid({{
 
     return js
 
-def make_table(data, header=None, columns=None, height=None):
+def make_table(data, header=None, columns=None, height=None, paging=True):
     "jsGridのtableを作成し、<div> と <script> を返す"
     logger.debug(
         "make_table: header=%r columns=%r",
@@ -229,7 +241,8 @@ def make_table(data, header=None, columns=None, height=None):
         data,
         header,
         columns,
-        height
+        height,
+        paging=paging,
     )
     return f"""
     <div id="{gridid}"></div>

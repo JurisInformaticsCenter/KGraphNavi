@@ -420,6 +420,10 @@ class Gadget:
             if show_type == "vtable":
                 kwargs["attribute_width"] = self.show_method.get("attribute_width")
                 kwargs["value_width"] = self.show_method.get("value_width")
+            else:
+                kwargs["group_by"] = self.show_method.get("group_by")
+                # KGraphNavi 側でページ送りするガジェットでは、表のページ送りは使わない
+                kwargs["paging"] = not self.page_size
             return shower(content, columns, **kwargs,)
         if show_type == "facet":
             if isinstance(content, dict):

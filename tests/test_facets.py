@@ -360,3 +360,53 @@ def test_collection_page_end_to_end(tmp_path, monkeypatch):
     bad = client.get(f"/collection?class={MOUNTAIN}&f.country=http://x.org/a%3E%20.")
     assert bad.status_code == 400
 
+
+
+# --------------------------------------------------
+# 表: 行のまとめ（group_by）とページ送り
+# --------------------------------------------------
+
+def test_group_rows_merges_multi_valued_columns():
+    from kgraphnavi.render_utils import group_rows
+
+    R = "http://dbpedia.org/resource/"
+    uri = lambda n: {"type": "uri", "value": R + n}
+    lit = lambda v: {"type": "literal", "value": v}
+    data = [
+        {"entity": uri("Breithorn"), "label": lit("Breithorn"), "country": uri("Italy")},
+        {"entity": uri("Matterhorn"), "label": lit("Matterhorn"), "country": uri("Italy")},
+        {"entity": uri("Breithorn"), "label": lit("Breithorn"), "country": uri("Switzerland")},
+        {"entity": uri("Breithorn"), "label": lit("Breithorn"), "country": uri("Italy")},
+    ]
+    columns = [
+        {"id": "entity", "type": "link", "string": "?label"},
+        {"id": "country", "type": "link", "display": "localname"},
+    ]
+    rows = group_rows(data, "entity", columns)
+    assert len(rows) == 2
+    breithorn = rows[0]
+    assert breithorn["entity"]["value"] == "Breithorn"
+    assert breithorn["country"]["type"] == "multi"
+    assert [cell["value"] for cell in breithorn["country"]["value"]] == ["Italy", "Switzerland"]
+    assert rows[1]["country"]["value"] == "Italy"
+
+
+def test_paged_gadget_disables_table_paging():
+    rows = [{"entity": {"type": "uri", "value": "http://e/a"}}]
+    paged = Gadget(
+        {"type": "sparql", "page_size": 20, "src": "SELECT ?entity WHERE { ?entity ?p ?o }"},
+        {"type": "htable", "columns": [{"id": "entity", "type": "link"}]},
+        None,
+    )
+    plain = Gadget(
+        {"type": "sparql", "src": "SELECT ?entity WHERE { ?entity ?p ?o }"},
+        {"type": "htable", "columns": [{"id": "entity", "type": "link"}]},
+        None,
+    )
+    paged_html = paged.show(rows)
+    plain_html = plain.show(rows)
+    assert "paging: false" in paged_html
+    assert 'height: "auto"' in paged_html
+    assert "paging: true" in plain_html
+    # 閲覧用の表なので編集はできない
+    assert "editing: false" in plain_html and "inserting: false" in plain_html

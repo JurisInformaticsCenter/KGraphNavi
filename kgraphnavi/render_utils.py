@@ -240,8 +240,61 @@ def show_vertical_table(pairs, columns=None, height=None, attribute_width=None, 
     )
     return result
 
-def show_horizontal_table(data, columns=None, height=None):
-    """SPARQL結果を横型テーブルとして表示する。"""
+def _cell_key(cell):
+    return (repr(cell.get("value")), cell.get("type"), cell.get("href"))
+
+
+def merge_cells(cells_list):
+    """同じ列の複数のセルを1つにまとめる。値が1種類ならそのセル、複数なら multi セル。"""
+    unique = []
+    seen = set()
+    for cell in cells_list:
+        value = cell.get("value")
+        if value is None or value == "":
+            continue
+        key = _cell_key(cell)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(cell)
+    if not unique:
+        return {"value": "", "type": "literal"}
+    if len(unique) == 1:
+        return unique[0]
+    return {"value": unique, "type": "multi"}
+
+
+def group_rows(data, group_by, columns=None):
+    """group_by の変数の値が同じ行を1行にまとめ、表示用セルの辞書のリストを返す。
+
+    例えば「山×国」の組み合わせごとに返る SPARQL の結果を、山ごとに1行にし、
+    国の列には複数の国を並べる。行の順序は、各グループが最初に現れた順。
+    """
+    groups = {}
+    for record in data:
+        binding = record.get(group_by)
+        key = get_raw_value(binding) if binding is not None else id(record)
+        groups.setdefault(key, []).append(get_record_cells(record, columns))
+    rows = []
+    for cells_list in groups.values():
+        keys = []
+        for cells in cells_list:
+            for key in cells:
+                if key not in keys:
+                    keys.append(key)
+        rows.append({
+            key: merge_cells([cells[key] for cells in cells_list if key in cells])
+            for key in keys
+        })
+    return rows
+
+
+def show_horizontal_table(data, columns=None, height=None, group_by=None, paging=True):
+    """SPARQL結果を横型テーブルとして表示する。
+
+    group_by: この変数の値が同じ行を1行にまとめる（例: entity）
+    paging:   表のライブラリ（jsGrid）のページ送りを使うか
+    """
 
     logger.debug(
         "show_horizontal_table: rows=%d columns=%r",
@@ -254,11 +307,17 @@ def show_horizontal_table(data, columns=None, height=None):
         header = list(data[0].keys())
     else:
         header = []
-    rows = [get_record_cells(record, columns) for record in data]
+    if group_by:
+        rows = group_rows(data, group_by, columns)
+    else:
+        rows = [get_record_cells(record, columns) for record in data]
     return make_table(
         rows,
         header=header,
-        columns=columns,)
+        columns=columns,
+        height=height,
+        paging=paging,
+    )
 
 def show_retrieval_result(data, columns=None):
     return show_horizontal_table(data, columns)
