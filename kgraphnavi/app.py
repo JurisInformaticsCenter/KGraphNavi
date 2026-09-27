@@ -29,6 +29,7 @@ from .render_utils import show_chart, show_network, pairs2adjacent, show_adjacen
 from .sparql import SPARQL
 from .collection import Collection
 from .errors import ConfigError, GadgetError, ShowError
+from .terms import predicate_term
 
 logger = logging.getLogger(__name__)
 
@@ -66,10 +67,10 @@ def load_yaml(path):
         return yaml.safe_load(yamlf)
 
 def move_focus(uri, path, sparql_client):
-    """現在のuriからpathによって、新しいuriを求める"""
-    query = f"select ?new where {{ {uri} {path} ?new }}"
-    results = [record['new']['value'] for record in sparql_client.exsparql(query)]
-    return results[0]
+    """現在のuriからpathによって、新しいuriを求める。見つからなければNone"""
+    query = f"select ?new where {{ $uri {predicate_term(path)} ?new }}"
+    results = [record['new']['value'] for record in sparql_client.query(query, {"uri": uri})]
+    return results[0] if results else None
 
 def sparql_result(val):
     return [{"val": {'value': val, 'type': 'text'}}, ]
@@ -209,28 +210,33 @@ class Gadget:
         return result
 
 
+    # ガジェットのSPARQLでCollectionを受け取るプレースホルダ（?entity に束縛される）
+    COLLECTION_PLACEHOLDER = "$collection"
+    _WHERE_OPEN = re.compile(r"\bWHERE\s*\{", re.IGNORECASE)
+
     def _connect_collection(self, query, collection):
-        """GadgetのSPARQLにCollectionの対象を接続する。"""
-    
+        """GadgetのSPARQLにCollectionの対象を接続する。
+
+        SPARQL中の $collection を、?entity を束縛する副問い合わせに置き換える。
+        $collection がなければ、最初の WHERE { の直後に挿入する。
+        """
         if collection is None:
+            if self.COLLECTION_PLACEHOLDER in query:
+                raise GadgetError(
+                    "$collection を使うガジェットはコレクションのページで使ってください"
+                )
             return query
-    
-        marker = "WHERE {"
-        if marker not in query:
+        subquery = collection.to_subquery("?entity")
+        if self.COLLECTION_PLACEHOLDER in query:
+            return query.replace(self.COLLECTION_PLACEHOLDER, subquery)
+        match = self._WHERE_OPEN.search(query)
+        if match is None:
             raise GadgetError(
                 "Collectionを使用するSPARQLにはWHERE句が必要です"
             )
-    
-        condition = collection.get_condition("?entity")
-    
-        return query.replace(
-            marker,
-            f"{marker}\n    {condition}",
-            1,
-        )
+        return query[:match.end()] + "\n" + subquery + "\n" + query[match.end():]
 
 
-    
     def extract_sparql(self, uri, application, params=None, collection=None):
         """SPARQLを実行してデータを取得する。"""
         logger.info(
@@ -303,52 +309,11 @@ class Gadget:
         *,
         exclude=None,
     ):
-        """URLパラメータのFacet条件をCollectionに適用する。"""
-    
-        if params is None:
-            params = {}
-    
-        excluded = set(exclude or ())
-        result = collection
-    
-        for name, value in params.items():
-            # Collection自身を定義するパラメータ
-            if name in ("class", "uri"):
-                continue
-    
-            # 値が指定されていないパラメータ
-            if value is None or value == "":
-                continue
-    
-            # 現在表示しているFacet自身の条件
-            if name in excluded:
-                continue
-    
-            # Facet定義を取得
-            facet = application.get_facet_definition(name)
-    
-            # Facetとして定義されていないパラメータは無視
-            if facet is None:
-                continue
-    
-            predicate = facet.get("predicate")
-    
-            if not predicate:
-                raise GadgetError(
-                    f"facet({name})にpredicateがありません"
-                )
-    
-            result = result.filter(
-                predicate,
-                value,
-            )
-    
-        return result
-
+        """（互換用）Application.apply_collection_filters() を呼ぶ。"""
+        return application.apply_collection_filters(collection, params=params, exclude=exclude)
 
     def extract_facet(self, uri, application, params=None, collection=None):
         """CollectionからFacet候補を取得する。"""
-    
         if application is None:
             raise GadgetError("facet extractにはapplicationが必要です")
         facet_name = self.extract_method.get("name")
@@ -361,8 +326,17 @@ class Gadget:
             raise GadgetError("facet extractにはCollectionが必要です")
         # 現在表示しているFacet自身の条件だけ除外して、
         # 他のFacet条件は維持する。
-        collection = self.apply_collection_filters(collection, application, params=params, exclude={facet_name})
-        return collection.get_facets(predicate)
+        collection = application.apply_collection_filters(
+            collection.without({facet_name}),
+            params=params,
+            exclude={facet_name},
+        )
+        return collection.get_facets(
+            predicate,
+            label_predicate=self.extract_method.get("label_predicate", "rdfs:label"),
+            lang=self.extract_method.get("lang"),
+            limit=self.extract_method.get("limit"),
+        )
 
     def show(self, content):
         """取得したデータを表示する。"""
@@ -513,6 +487,13 @@ class Application:
         # path指定ならuriを移動
         if path:
             uri = move_focus(uri, path, self.sparql_client)
+            if uri is None:
+                return f"""
+        <section class="gadget">
+        <h2 class="gadget-title">{gadget_name}</h2>
+        <p class="gadget-empty">該当するデータがありません</p>
+        </section>
+        """
         if params is None:
             params = {}
         # データ取得
@@ -597,68 +578,36 @@ class Application:
 
     def get_collection(self, uri=None, params=None, query=None):
         """現在のページに対応するCollectionを取得する。
-    
-        Collectionの取得方法は、次の2種類をサポートする。
-    
-        1. queryが指定されている場合
-    
-        ページ定義のqueryによって定義されるCollection。
-    
-        2. classが指定されている場合
-    
-        classに属するリソースをSPARQLで取得するCollection。
-    
-        3. uriが指定されている場合
-    
-        uriを要素とするCollection。
-    
+
+        Collectionの取得方法は、次の3種類をサポートする（上ほど優先）。
+
+        1. queryが指定されている場合: ページ定義のqueryによって定義されるCollection
+        2. classが指定されている場合: classに属するリソースのCollection
+        3. uriが指定されている場合: uriを要素とするCollection
+
         このメソッドではCollectionの絞り込みは行わない。
         絞り込みはCollection側で行う。
         """
-    
         if params is None:
             params = {}
-    
         # page定義のqueryによって定義されるCollection
         if query:
-
-            logger.info("get_collection: query=%r", query)
-            logger.info("get_collection: params=%r", params)
-
-            collection = Collection.from_query(
-                self.sparql_client,
-                query,
-                params=params,
-            )
-        
-            logger.debug(
-                "get_collection: generated query=%r",
-                query,
-            )
-            return collection
-
-        # classによって定義されるCollection
-        class_uri = params.get("class")
-        if class_uri:
-            query = """
-            SELECT DISTINCT ?uri
-            WHERE {
-                ?uri a $class .
-            }
-            """
+            logger.debug("get_collection: query=%r params=%r", query, params)
             return Collection.from_query(
                 self.sparql_client,
                 query,
                 params=params,
             )
-    
+        # classによって定義されるCollection
+        class_uri = params.get("class")
+        if class_uri:
+            return Collection.from_class(self.sparql_client, class_uri)
         # URIを列挙して定義されるCollection
         if uri:
             return Collection.from_uris(
                 self.sparql_client,
                 [uri],
             )
-    
         raise GadgetError(
             "Collectionを作成するためのclassまたはuriがありません"
         )
@@ -681,6 +630,8 @@ class Application:
                 params=params,
                 query=page_def.get("query"),
             )
+            # URLで指定されたFacet条件で絞り込み、ページ内のGadgetで共有する
+            collection = self.apply_collection_filters(collection, params)
         logger.debug(
             "collection: query=%r",
             collection.get_query() if collection is not None else None,
@@ -705,6 +656,42 @@ class Application:
     
         return None
     
+    def apply_collection_filters(self, collection, params=None, *, exclude=None):
+        """URLパラメータのFacet条件をCollectionに適用する。
+
+        - Facetとして定義されていないパラメータ、値が空のパラメータは無視する
+        - exclude に指定した名前のFacetは適用しない（そのFacet自身の候補計算用）
+        - Collectionに同じ名前の条件が既に付いていれば重ねて適用しない
+        """
+        if params is None:
+            params = {}
+        excluded = set(exclude or ())
+        applied = {condition.name for condition in collection.conditions}
+        result = collection
+        for name, value in params.items():
+            # Collection自身を定義するパラメータ
+            if name in ("class", "uri"):
+                continue
+            # 値が指定されていないパラメータ、除外するFacet、適用済みのFacet
+            if value is None or value == "" or name in excluded or name in applied:
+                continue
+            facet = self.get_facet_definition(name)
+            # Facetとして定義されていないパラメータは無視
+            if facet is None:
+                continue
+            predicate = facet.get("predicate")
+            if not predicate:
+                raise GadgetError(
+                    f"facet({name})にpredicateがありません"
+                )
+            result = result.filter(
+                predicate,
+                value,
+                value_type=facet.get("value_type", "auto"),
+                name=name,
+            )
+        return result
+
     def get_adjacent_graph(self, name, edge, direction):
         if name not in self.adjacent:
             self.adjacent[name] = pairs2adjacent(

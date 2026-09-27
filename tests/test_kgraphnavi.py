@@ -9,7 +9,7 @@
 
 import pytest
 from unittest.mock import Mock
-from kgraphnavi.app import Gadget
+from kgraphnavi.app import Gadget, Application
 from kgraphnavi.collection import Collection
 from kgraphnavi.errors import GadgetError
 
@@ -38,177 +38,38 @@ class DummyPages:
         self.snippet = ""
     
 class DummyApplication:
-    """Collection関連テストに必要な部分だけを持つモック"""
+    """Collection関連テストに必要な部分だけを持つモック。
+
+    make_gadget 以外は本物の Application のメソッドを使う。
+    """
 
     def __init__(self, gadgets=None, sparql=None):
         self.sparql_client = sparql or DummySPARQL()
         self.gadgets = gadgets or {}
         self.pages = DummyPages()
-    
+
+    @property
+    def gadgetset(self):
+        return self.gadgets
+
     def make_gadget(self, gadget_name, uri, params=None, collection=None):
         """テスト用の最小make_gadget。"""
         if params is None:
             params = {}
-    
         gadget = self.gadgets[gadget_name]
-    
         content = gadget.extract(
             uri,
             application=self,
             params=params,
             collection=collection,
         )
-    
         return gadget.show(content)
-    
-    def get_collection(self, uri=None, params=None, query=None):
-        """現在のページに対応するCollectionを取得する。"""
 
-        if params is None:
-            params = {}
-
-        if query:
-            collection = Collection.from_query(
-                self.sparql_client,
-                query,
-                params=params,
-            )
-        else:
-            class_uri = params.get("class")
-    
-            if class_uri:
-                query = """
-                SELECT DISTINCT ?uri
-                WHERE {
-                    ?uri a $class .
-                }
-                """
-    
-                return Collection.from_query(
-                    self.sparql_client,
-                    query,
-                    params={"class": class_uri},
-                )
-    
-            if uri:
-                return Collection.from_uris(
-                    self.sparql_client,
-                    [uri],
-                )
-
-            raise GadgetError(
-                "Collectionを作成するためのclassまたはuriがありません"
-            )
-
-        return self.apply_collection_filters(
-            collection,
-            params=params,
-        )
-
-    def get_facet_definition(self, name):
-        """nameに対応するfacet Gadgetの定義を返す。"""
-
-        for gadget in self.gadgets.values():
-            extract_method = gadget.extract_method
-
-            if extract_method.get("type") != "facet":
-                continue
-
-            if extract_method.get("name") == name:
-                return extract_method
-
-        return None
-
-    def apply_collection_filters(
-        self,
-        collection,
-        params=None,
-        *,
-        exclude=None,
-    ):
-        """URLパラメータに指定されたFacet条件をCollectionに適用する。"""
-
-        if params is None:
-            params = {}
-
-        if exclude is None:
-            exclude = set()
-        else:
-            exclude = set(exclude)
-
-        result = collection
-
-        for name, value in params.items():
-
-            # Collection自身を定義するパラメータ
-            if name in ("class", "uri"):
-                continue
-
-            # 値がない場合
-            if value is None or value == "":
-                continue
-
-            # 現在計算中のFacet自身
-            if name in exclude:
-                continue
-
-            facet = self.get_facet_definition(name)
-
-            # 登録されていないパラメータはFacet条件にしない
-            if facet is None:
-                continue
-
-            predicate = facet.get("predicate")
-
-            if not predicate:
-                raise GadgetError(
-                    f"facet({name})にpredicateがありません"
-                )
-
-            result = result.filter(
-                predicate,
-                value,
-            )
-        return result
-
-    def make_page(self, page, uri, params=None):
-        """テスト用make_page。Collectionをページ内のGadgetで共有する。"""
-    
-        if params is None:
-            params = {}
-    
-        page_def = self.pages.pagedict[page]
-    
-        collection = self.get_collection(
-            uri,
-            params=params,
-        )
-    
-        tabs = page_def.get("tabs")
-    
-        if not tabs:
-            return [
-                self.make_gadget(
-                    gadget_name,
-                    uri,
-                    params=params,
-                    collection=collection,
-                )
-                for gadget_name in page_def["gadget"]
-            ]
-    
-        for tab in tabs:
-            for gadget_name in tab["gadget"]:
-                self.make_gadget(
-                    gadget_name,
-                    uri,
-                    params=params,
-                    collection=collection,
-                )
-    
-        return []
-    
-
+    get_collection = Application.get_collection
+    get_facet_definition = Application.get_facet_definition
+    apply_collection_filters = Application.apply_collection_filters
+    make_page = Application.make_page
+    make_page_tabs = Application.make_page_tabs
 
 
 @pytest.fixture
@@ -404,7 +265,7 @@ def test_apply_collection_filters_requires_predicate(
         )
 
 def test_get_collection_from_class(application):
-    """class指定ではqueryベースのCollectionが作られる。"""
+    """class指定ではクラスのインスタンスを表すCollectionが作られる。"""
 
     collection = application.get_collection(
         params={
@@ -413,11 +274,10 @@ def test_get_collection_from_class(application):
     )
 
     assert collection.uris is None
-    assert collection.query is not None
-    assert "SELECT DISTINCT ?uri" in collection.query
-    assert collection.params == {
-        "class": "http://example.org/Mountain",
-    }
+    assert "?uri a <http://example.org/Mountain> ." in collection.get_query()
+    # URLの値はSPARQLのパラメータとしては渡さない（検証済みの項として埋め込む）
+    assert collection.all_params() == {}
+    assert application.sparql_client.calls == []
 
 def test_get_collection_from_uri(application):
     """uri指定では、そのURIだけを要素とするCollectionが作られる。"""
@@ -446,7 +306,7 @@ def test_get_collection_then_filter(application):
     )
 
     assert filtered is not collection
-    assert filtered.query is not None
+    assert filtered.base is collection
     assert filtered.filters == [
         (
             "http://example.org/country",
@@ -507,7 +367,7 @@ def test_get_collection_then_filter_is_lazy(application):
     )
 
     assert application.sparql_client.calls == []
-    assert filtered.query is not None
+    assert filtered.base is collection
     assert filtered.filters == [
         (
             "http://example.org/country",
@@ -710,6 +570,7 @@ def test_extract_facet_gets_facets_from_collection():
             "value": "http://example.org/Japan",
             "label": "Japan",
             "count": 3,
+            "type": "uri",
         }
     ]
 
@@ -900,6 +761,7 @@ def test_make_page_shares_collection_with_gadgets(application):
 
     application.pages.pagedict = {
         "test": {
+            "type": "collection",
             "gadget": [
                 "gadget1",
                 "gadget2",
@@ -915,6 +777,7 @@ def test_make_page_shares_collection_with_gadgets(application):
     assert len(gadget1.collections) == 1
     assert len(gadget2.collections) == 1
 
+    assert gadget1.collections[0] is not None
     assert gadget1.collections[0] is gadget2.collections[0]
 
 def test_make_page_tabs_passes_collection_to_gadgets(application):
@@ -947,6 +810,7 @@ def test_make_page_tabs_passes_collection_to_gadgets(application):
 
     application.pages.pagedict = {
         "test": {
+            "type": "collection",
             "tabs": [
                 {
                     "label": "Tab 1",
@@ -1000,6 +864,7 @@ def test_make_page_creates_collection_only_once(application):
 
     application.pages.pagedict = {
         "test": {
+            "type": "collection",
             "gadget": [
                 "gadget1",
                 "gadget2",
@@ -1010,9 +875,9 @@ def test_make_page_creates_collection_only_once(application):
     original_get_collection = application.get_collection
     calls = []
 
-    def recording_get_collection(uri=None, params=None):
+    def recording_get_collection(uri=None, params=None, query=None):
         calls.append((uri, params))
-        return original_get_collection(uri, params=params)
+        return original_get_collection(uri, params=params, query=query)
 
     application.get_collection = recording_get_collection
 
@@ -1082,6 +947,7 @@ def test_facet_gadget_end_to_end(application):
             "value": "http://example.org/Japan",
             "label": "Japan",
             "count": 3,
+            "type": "uri",
         }
     ]
 
@@ -1164,6 +1030,7 @@ def test_facet_gadget_applies_other_facet_filters(application):
             "value": "http://example.org/Japan",
             "label": "Japan",
             "count": 3,
+            "type": "uri",
         }
     ]
 
@@ -1308,78 +1175,139 @@ def test_extract_sparql_connects_collection():
     assert "dbo:Mountain" in query
     assert "dbc:Mountains_of_the_Alps" in query
     assert "?entity rdfs:label ?label ." in query
-    # Collectionの条件は ?uri を ?entity に置き換えて接続される
-    assert "?entity rdf:type dbo:Mountain" in query
+    # Collectionは ?entity だけを外に出す副問い合わせとして接続される
+    assert "SELECT DISTINCT (?uri AS ?entity)" in query
+    assert "?uri rdf:type dbo:Mountain ." in query
 
-'''
-def test_get_collection_with_facet_filter(application):
-    """classで作ったCollectionにFacet条件が追加される。"""
 
-    collection = application.get_collection(
+
+# --------------------------------------------------
+# ガジェットへのCollectionの接続（$collection）
+# --------------------------------------------------
+
+def _sparql_gadget(src, sparql):
+    gadget = Gadget({"type": "sparql", "src": src}, {"type": "htable"}, None)
+    gadget.sparql_client = sparql
+    return gadget
+
+
+def test_collection_placeholder_is_replaced():
+    """$collection は ?entity を束縛する副問い合わせに置き換えられる。"""
+    sparql = DummySPARQL([])
+    gadget = _sparql_gadget(
+        """
+        SELECT ?npages (COUNT(?npages) AS ?count)
+        WHERE {
+            ?entity dcterms:extent ?npages .
+            $collection
+        }
+        GROUP BY ?npages
+        """,
+        sparql,
+    )
+    collection = Collection.from_class(sparql, "http://example.org/Document")
+    gadget.extract(None, application=DummyApplication(sparql=sparql), collection=collection)
+    query, _ = sparql.calls[0]
+    assert "$collection" not in query
+    assert "SELECT DISTINCT (?uri AS ?entity)" in query
+    assert "?uri a <http://example.org/Document> ." in query
+    # 副問い合わせはプレースホルダの位置に入る（WHERE直後への自動挿入はしない）
+    assert query.index("?entity dcterms:extent") < query.index("SELECT DISTINCT (?uri AS ?entity)")
+
+
+def test_collection_is_inserted_after_lowercase_where():
+    sparql = DummySPARQL([])
+    gadget = _sparql_gadget("select ?entity where{ ?entity rdfs:label ?l }", sparql)
+    collection = Collection.from_class(sparql, "http://example.org/Document")
+    gadget.extract(None, application=DummyApplication(sparql=sparql), collection=collection)
+    query, _ = sparql.calls[0]
+    assert query.startswith("select ?entity where{\n{ SELECT DISTINCT (?uri AS ?entity)")
+
+
+def test_collection_placeholder_without_collection_is_error():
+    sparql = DummySPARQL([])
+    gadget = _sparql_gadget("SELECT ?entity WHERE { $collection }", sparql)
+    with pytest.raises(GadgetError):
+        gadget.extract(None, application=DummyApplication(sparql=sparql), collection=None)
+
+
+def test_make_page_applies_facet_params_to_shared_collection(application):
+    """make_page() はURLのFacet条件で絞り込んだCollectionをGadgetに渡す。"""
+
+    class RecordingGadget:
+        extract_method = {"type": "sparql"}
+
+        def __init__(self):
+            self.collection = None
+
+        def extract(self, uri, application=None, params=None, collection=None):
+            self.collection = collection
+            return []
+
+        def show(self, content):
+            return ""
+
+    gadget = RecordingGadget()
+    application.gadgets["list"] = gadget
+    application.pages.pagedict = {"test": {"type": "collection", "gadget": ["list"]}}
+
+    application.make_page(
+        "test",
+        None,
         params={
             "class": "http://example.org/Mountain",
             "country": "http://example.org/Japan",
-        }
+            "unknown": "ignored",
+        },
     )
 
-    assert collection.query is not None
-    assert collection.filters == [
-        (
-            "http://example.org/country",
-            "http://example.org/Japan",
-        )
+    assert gadget.collection.filters == [
+        ("http://example.org/country", "http://example.org/Japan"),
     ]
+    assert [c.name for c in gadget.collection.conditions] == ["country"]
 
-def test_get_collection_with_multiple_facet_filters(application):
-    """複数のFacet条件がCollectionにANDで追加される。"""
 
-    collection = application.get_collection(
-        params={
-            "class": "http://example.org/Mountain",
-            "country": "http://example.org/Japan",
-            "continent": "http://example.org/Asia",
-        }
+def test_extract_facet_on_filtered_page_collection(application):
+    """ページで絞り込み済みのCollectionでも、自分自身の条件は外して候補を数える。"""
+    sparql = DummySPARQL([])
+    application.sparql_client = sparql
+    facet = Gadget(
+        {"type": "facet", "name": "country", "predicate": "http://example.org/country"},
+        {"type": "facet"},
+        None,
     )
-
-    assert collection.filters == [
-        (
-            "http://example.org/country",
-            "http://example.org/Japan",
-        ),
-        (
-            "http://example.org/continent",
-            "http://example.org/Asia",
-        ),
-    ]
-
-def test_get_collection_does_not_execute_sparql(application):
-    """Collection生成時にはSPARQLを実行しない。"""
-
-    application.sparql_client.calls.clear()
-
-    collection = application.get_collection(
-        params={
-            "class": "http://example.org/Mountain",
-            "country": "http://example.org/Japan",
-        }
+    facet.sparql_client = sparql
+    params = {
+        "class": "http://example.org/Mountain",
+        "country": "http://example.org/Japan",
+        "continent": "http://example.org/Asia",
+    }
+    collection = application.apply_collection_filters(
+        application.get_collection(params=params), params
     )
+    facet.extract(None, application=application, params=params, collection=collection)
+    query, _ = sparql.calls[0]
+    assert "<http://example.org/Japan>" not in query
+    assert query.count("<http://example.org/Asia>") == 1
 
-    assert collection is not None
-    assert application.sparql_client.calls == []
 
-def test_get_collection_executes_query_on_get_uris(application):
-    """get_collection()では実行せず、get_uris()でSPARQLを実行する。"""
+def test_move_focus_validates_path():
+    from kgraphnavi.app import move_focus
+    from kgraphnavi.terms import ValueTermError
 
-    application.sparql_client.calls.clear()
+    class Client:
+        def __init__(self):
+            self.calls = []
 
-    collection = application.get_collection(
-        params={
-            "class": "http://example.org/Mountain",
-            "country": "http://example.org/Japan",
-        }
+        def query(self, query, params=None):
+            self.calls.append((query, params))
+            return [{"new": {"type": "uri", "value": "http://example.org/B"}}]
+
+    client = Client()
+    assert move_focus("http://example.org/A", "dbo:country", client) == "http://example.org/B"
+    assert client.calls[0] == (
+        "select ?new where { $uri dbo:country ?new }",
+        {"uri": "http://example.org/A"},
     )
-
-    collection.get_uris()
-
-    assert len(application.sparql_client.calls) == 1
-'''
+    with pytest.raises(ValueTermError):
+        move_focus("http://example.org/A", "dbo:x } ?s ?p ?o {", client)

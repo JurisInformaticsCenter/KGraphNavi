@@ -93,6 +93,7 @@
       type: facet
       name: country
       predicate: http://dbpedia.org/ontology/country
+      lang: en
     show:
       type: facet
 -   def: page
