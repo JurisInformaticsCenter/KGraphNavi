@@ -829,7 +829,9 @@
     class: caselawo:CaseLawDocument
     sidebar:
         - facet_suit_type
-        - facet_caselaw_category
+        - facet_field
+        - facet_right_type
+        - facet_judgment_type
         - facet_year
     tabs:
         - label: 一覧
@@ -856,11 +858,11 @@
                 ?entity caselawp:id ?id .
                 OPTIONAL { ?entity caselawp:year ?year }
                 OPTIONAL { ?entity dcterms:extent ?npages }
-                OPTIONAL { ?entity caselawp:訴訟類型 ?suit }
                 OPTIONAL {
                     ?trial a caselawo:Trial ;
-                           caselawp:id ?id ;
-                           caselawp:casename ?casename .
+                           caselawp:id ?id .
+                    OPTIONAL { ?trial caselawp:casename ?casename }
+                    OPTIONAL { ?trial caselawp:訴訟類型 ?suit }
                 }
             }
     show:
@@ -877,6 +879,7 @@
               width: 360
             - id: suit
               label: 訴訟類型
+              display: localname
               width: 100
             - id: year
               label: 年
@@ -884,24 +887,46 @@
             - id: npages
               label: ページ数
               width: 70
+# 訴訟類型・分野・権利種別は裁判（Trial）、裁判種別は判決（Judgment）にある。
+# 判決文書とは caselawp:id の値が同じなので、caselawp:id/^caselawp:id でたどる。
 -   def: gadget
     name: facet_suit_type
     get:
         type: facet
         name: suit_type
         label: 訴訟類型
-        predicate: caselawp:訴訟類型
-        value_type: literal
+        predicate: caselawp:id/^caselawp:id/caselawp:訴訟類型
+        value_type: iri
     show:
         type: facet
 -   def: gadget
-    name: facet_caselaw_category
+    name: facet_field
     get:
         type: facet
-        name: category
-        label: 判例カテゴリ
-        predicate: caselawp:caselawcategory
-        limit: 30
+        name: field
+        label: 分野
+        predicate: caselawp:id/^caselawp:id/caselawp:分野
+        value_type: iri
+    show:
+        type: facet
+-   def: gadget
+    name: facet_right_type
+    get:
+        type: facet
+        name: right_type
+        label: 権利種別
+        predicate: caselawp:id/^caselawp:id/caselawp:権利種別
+        value_type: iri
+    show:
+        type: facet
+-   def: gadget
+    name: facet_judgment_type
+    get:
+        type: facet
+        name: judgment_type
+        label: 裁判種別
+        predicate: caselawp:id/^caselawp:id/caselawp:裁判種別
+        value_type: iri
     show:
         type: facet
 -   def: gadget

@@ -181,7 +181,7 @@ kgraphnavi -e http://localhost:8890/sparql --data-dir /path/to/caselaw/html conf
 
 判決文書の HTML は限定公開のため、リポジトリには含みません。HTML を利用できる場合は、`<年>/<ID>_hanrei.html` の形で置いたフォルダを `--data-dir`（または `config/local.yaml` の `data_dir`）で指定してください。判決文書のページに HTML へのリンクが表示されます。
 
-判決文書の一覧・統計（PDFページ数分布、構造パターン）は `/collection?class=http://ds.rois.ac.jp/caselaw/ontology/CaseLawDocument` で表示し、訴訟類型・判例カテゴリ・年で絞り込めます。
+判決文書の一覧・統計（PDFページ数分布、構造パターン）は `/collection?class=http://ds.rois.ac.jp/caselaw/ontology/CaseLawDocument` で表示し、訴訟類型・分野・権利種別・裁判種別・年で絞り込めます。
 
 ### WSGIサーバでの運用
 
