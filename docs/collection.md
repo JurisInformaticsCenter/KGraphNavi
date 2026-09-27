@@ -8,6 +8,7 @@
 - def: page
   name: MountainCollection
   type: collection
+  class: dbo:Mountain       # このページが対象とするクラス（リストで複数も可）
   query: |                  # 省略時は URL の class=<クラスURI> のインスタンス
     SELECT ?uri
     WHERE {
@@ -19,9 +20,25 @@
     - mountain_list
 ```
 
-- `query` は `?uri` を返す SELECT です。`PREFIX` は書かず、設定ファイルの `prefixes` に書いてください。
+- `query` は `?uri` を返す SELECT です。`PREFIX` は書かず、設定ファイルの `prefixes` に書いてください（`rdf` `rdfs` `xsd` `owl` は書かなくても使えます）。
 - ページの先頭に、件数と現在の絞り込み条件が表示されます。条件の ✕ で、その条件を外せます。
 - `gadget` の代わりに `tabs` も使えます。選んだタブは URL（`tab=番号`）に残ります。
+
+### ページの選び方
+
+`/collection?class=<クラス>` では、次の順でページを選びます。
+
+1. `class:` にそのクラスを含むページ
+2. そのクラスの上位クラス（`rdfs:subClassOf` をたどる）を `class:` に含むページ（ページ定義の順で最初のもの）
+3. `class:` も `query` も持たないコレクションのページ
+4. 組み込みのページ（要素を名前とURIで50件ずつ一覧する）
+
+`query` を持つページは、その query の集合を表すので、他のクラスの代わりには使いません。
+ページを直接指定するときは `/collection?view=<ページ名>` とします。トップ画面のコレクションサンプルにページ名を書くと、このリンクになります。
+
+組み込みのページの名前には `rdfs:label`（設定の `label`）を使います。言語を選ぶ場合は `- label_lang: en` のように指定します。
+
+`/graph` は、`type: graph` の最初のページを表示します。
 
 ## ガジェットでコレクションを受け取る
 
@@ -101,7 +118,8 @@
 
 | パラメータ | 内容 |
 | --- | --- |
-| `class=<クラスURI>` | コレクションのクラス（ページに `query` がない場合） |
+| `class=<クラスURI>` | コレクションのクラス（`dbo:Mountain` のような接頭辞付きの名前も可） |
+| `view=<ページ名>` | コレクションのページを直接指定 |
 | `f.<name>=<値>` | 値の選択。繰り返すと OR |
 | `f.<name>.min=<下限>` / `f.<name>.max=<上限>` | 範囲 |
 | `page=<番号>` | ページ送り（1始まり） |

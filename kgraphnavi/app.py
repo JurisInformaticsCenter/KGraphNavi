@@ -27,10 +27,10 @@ import yaml
 from flask import Flask, render_template
 from .render_utils import show_vertical_table, show_horizontal_table, show_facet
 from .render_utils import show_chart, show_network, pairs2adjacent, show_adjacentnetwork
-from .sparql import SPARQL
+from .sparql import SPARQL, STANDARD_PREFIXES
 from .collection import Collection
 from .errors import ConfigError, GadgetError, ShowError
-from .terms import predicate_term
+from .terms import predicate_term, literal_term, language_tag
 from .facets import (
     facet_selection,
     page_number,
@@ -539,22 +539,133 @@ class Pages:
                         f"page({name})のtabs[{i}].gadgetは"
                         "リストで指定してください"
                     )
+        classes = config.get("class")
+        if classes is not None:
+            if page_type != "collection":
+                raise ConfigError(f"page({name})のclassは type: collection のページでだけ指定できます")
+            if isinstance(classes, str):
+                classes = [classes]
+            if not isinstance(classes, list) or not all(isinstance(c, str) for c in classes):
+                raise ConfigError(f"page({name})のclassは文字列またはリストで指定してください")
         self.pagedict[name] = {
             "type": page_type,
             "gadget": gadget,
             "tabs": tabs,
             "query": config.get("query"),
+            "class": list(classes) if classes else [],
         }
         self.config = config
 
+    def resolve_prefixes(self, prefixes):
+        """ページの type（RDFクラス）と class に書かれた接頭辞付きの名前を完全なIRIにする。"""
+        for page in self.pagedict.values():
+            if page["type"] not in SPECIAL_PAGE_TYPES:
+                page["type"] = expand_prefixed(page["type"], prefixes)
+            page["class"] = [expand_prefixed(c, prefixes) for c in page.get("class") or []]
+
     def rdftype2page(self, rdftype):
-        """RDF typeに対応するresource用Page名を返す"""
+        """RDF typeに対応するresource用Page名を返す。
+
+        type が一致するページを優先し、なければ type: '*' のページを返す。
+        """
+        fallback = None
         for name, page in self.pagedict.items():
             if page["type"] == rdftype:
                 return name
-            if page["type"] == "*":
+            if page["type"] == "*" and fallback is None:
+                fallback = name
+        return fallback
+
+    def pages_of_type(self, page_type):
+        return [name for name, page in self.pagedict.items() if page["type"] == page_type]
+
+    def collection_page_for_class(self, class_uri):
+        """class: に class_uri を含むコレクションのページ（なければNone）"""
+        for name in self.pages_of_type("collection"):
+            if class_uri in self.pagedict[name].get("class", []):
                 return name
         return None
+
+    def collection_classes(self):
+        """コレクションのページの class: に書かれたクラス（定義順）"""
+        classes = []
+        for name in self.pages_of_type("collection"):
+            for class_uri in self.pagedict[name].get("class", []):
+                if class_uri not in classes:
+                    classes.append(class_uri)
+        return classes
+
+    def default_collection_page(self):
+        """class も query も持たないコレクションのページ（なければNone）"""
+        for name in self.pages_of_type("collection"):
+            page = self.pagedict[name]
+            if not page.get("class") and not page.get("query"):
+                return name
+        return None
+
+
+def expand_prefixed(name, prefixes):
+    """接頭辞付きの名前（dbo:Mountain）を、prefixes を使って完全なIRIにする。
+
+    既に完全なIRIのもの、接頭辞が定義されていないものはそのまま返す。
+    """
+    if not isinstance(name, str):
+        return name
+    text = name.strip()
+    if text.startswith("<") and text.endswith(">"):
+        return text[1:-1]
+    if "://" in text or ":" not in text:
+        return text
+    prefix, local = text.split(":", 1)
+    base = (prefixes or {}).get(prefix)
+    if base is None:
+        return text
+    return f"{base}{local}"
+
+
+# 特別なページの種類（RDFクラスではないもの）
+SPECIAL_PAGE_TYPES = {"*", "collection", "graph"}
+
+# class に対応するページがないときに使う、組み込みのコレクションのページとガジェット
+BUILTIN_COLLECTION_PAGE = "_Collection"
+BUILTIN_COLLECTION_GADGET = "_collection_list"
+
+
+def builtin_collection_gadget(label_predicate="rdfs:label", label_lang=None):
+    """コレクションの要素をラベルとともに一覧する組み込みガジェット"""
+    label_predicate = predicate_term(label_predicate)
+    if label_lang:
+        preferred = (
+            f"    OPTIONAL {{ ?entity {label_predicate} ?_preferred . "
+            f"FILTER(LANGMATCHES(LANG(?_preferred), {literal_term(language_tag(label_lang))})) }}\n"
+        )
+        label = "COALESCE(SAMPLE(?_preferred), SAMPLE(?_any))"
+    else:
+        preferred = ""
+        label = "SAMPLE(?_any)"
+    src = (
+        f"SELECT ?entity ({label} AS ?label)\n"
+        "WHERE {\n"
+        "    $collection\n"
+        f"{preferred}"
+        f"    OPTIONAL {{ ?entity {label_predicate} ?_any }}\n"
+        "}\n"
+        "GROUP BY ?entity\n"
+        "ORDER BY ?entity"
+    )
+    return Gadget(
+        config_get={"type": "sparql", "page_size": 50, "src": src},
+        config_show={
+            "type": "htable",
+            "columns": [
+                {"id": "entity", "type": "link", "string": "?label", "label": "名前", "width": 400},
+                {"id": "entity", "type": "literal", "label": "URI", "width": 500},
+            ],
+        },
+        height=None,
+        title="一覧",
+    )
+
 
 # 設定の検証で使う、対応しているget/showの種類
 SUPPORTED_GET_TYPES = set(Gadget.EXTRACTORS)
@@ -564,7 +675,7 @@ RETRIEVE_FORM = '<form action="/search" method="GET"><div class="search_wrap"><i
 
 class Application:
     """Application"""
-    __slots__ = ("pages", "gadgetset", "title", "describe", "query_samples", "resource_samples", "collection_samples", "adjacent", "priority_list", "focus", "navi", "sparql_client", "data_dir", "max_rows")
+    __slots__ = ("pages", "gadgetset", "title", "describe", "query_samples", "resource_samples", "collection_samples", "adjacent", "priority_list", "focus", "navi", "sparql_client", "data_dir", "max_rows", "prefixes", "class_page_cache")
     def __repr__(self):
         return f'Application={self.pages!r}, {self.gadgetset}'
 
@@ -583,6 +694,9 @@ class Application:
         self.sparql_client = sparql_client
         self.data_dir = Path(data_dir) if data_dir else None
         self.max_rows = DEFAULT_MAX_ROWS
+        self.prefixes = {}
+        # RDFクラス → コレクションのページ名（上位クラスの問い合わせ結果を記憶する）
+        self.class_page_cache = {}
 
     def resolve_gadget(self, spec):
         if m := re.match(r'(.*)\((.*)\)', spec):
@@ -837,6 +951,42 @@ class Application:
                 definitions[extract_method["name"]] = extract_method
         return render_conditions(params, definitions, count=collection.count())
 
+    # 記憶するクラスの数の上限
+    CLASS_PAGE_CACHE_SIZE = 1000
+
+    def collection_page(self, class_uri):
+        """RDFクラスに対応するコレクションのページ名を返す。
+
+        1. class: にそのクラスを含むページ
+        2. そのクラスの上位クラスを class: に含むページ（rdfs:subClassOf+ を1回問い合わせる）
+        3. class も query も持たないコレクションのページ
+        4. 組み込みのコレクションのページ
+        """
+        class_uri = expand_prefixed(class_uri, self.prefixes)
+        if class_uri in self.class_page_cache:
+            return self.class_page_cache[class_uri]
+        page = self.pages.collection_page_for_class(class_uri)
+        if page is None:
+            candidates = [c for c in self.pages.collection_classes() if c != class_uri]
+            if candidates:
+                superclasses = self.sparql_client.get_superclasses_among(class_uri, candidates)
+                # ページ定義の順で最初に見つかったもの
+                for candidate in candidates:
+                    if candidate in superclasses:
+                        page = self.pages.collection_page_for_class(candidate)
+                        break
+        if page is None:
+            page = self.pages.default_collection_page() or BUILTIN_COLLECTION_PAGE
+        if len(self.class_page_cache) >= self.CLASS_PAGE_CACHE_SIZE:
+            self.class_page_cache.clear()
+        self.class_page_cache[class_uri] = page
+        return page
+
+    def graph_page(self):
+        """知識グラフ全体（/graph）のページ名。なければNone"""
+        pages = self.pages.pages_of_type("graph")
+        return pages[0] if pages else None
+
     def get_facet_definition(self, name):
         """nameに対応するfacet Gadgetの定義を返す。"""
     
@@ -1073,6 +1223,7 @@ def setconfig(config, base_dir=None):
         "frontend_base_url",
         "data_dir",
         "max_rows",
+        "label_lang",
     }
     PAGE_KEYS = {
         "def",
@@ -1081,6 +1232,7 @@ def setconfig(config, base_dir=None):
         "query",
         "gadget", # 表示するガジェット
         "tabs", # ガジェットをタブで分類
+        "class", # コレクションのページが対象とするRDFクラス
     }
     GADGET_KEYS = {
         "def",
@@ -1099,6 +1251,7 @@ def setconfig(config, base_dir=None):
     frontend_base_url = None
     data_dir = None
     max_rows = DEFAULT_MAX_ROWS
+    label_lang = None
     label_predicate = None
     prefixes = {}
     query_samples = []
@@ -1144,6 +1297,8 @@ def setconfig(config, base_dir=None):
                 frontend_base_url = config["frontend_base_url"]
             if "data_dir" in config:
                 data_dir = resolve_dir(config["data_dir"], base_dir)
+            if "label_lang" in config:
+                label_lang = config["label_lang"]
             if "max_rows" in config:
                 try:
                     max_rows = int(config["max_rows"])
@@ -1158,6 +1313,8 @@ def setconfig(config, base_dir=None):
                 raise ConfigError(f"page定義にnameがありません: {config!r}")
             if not config.get("type"):
                 raise ConfigError(f"page定義にtypeがありません: {name}")
+            if str(name).startswith("_"):
+                raise ConfigError(f"_ で始まるpage名は組み込み用です: {name}")
             pages.set_page(name, config)
         elif deftype == "gadget": # gadget定義
             unknown = set(config) - GADGET_KEYS
@@ -1172,6 +1329,8 @@ def setconfig(config, base_dir=None):
                 raise ConfigError(f"gadget定義にshowがありません: {name}")
             if name in gadgetset:
                 raise ConfigError(f"gadgetが二重定義されています: {name}")
+            if str(name).startswith("_"):
+                raise ConfigError(f"_ で始まるgadget名は組み込み用です: {name}")
             height = config.get("height", 500)
             gadgetset[name] = Gadget(
                 config_get=config["get"],
@@ -1181,6 +1340,18 @@ def setconfig(config, base_dir=None):
             )
         else: # 未知のdef
             raise ConfigError(f"未知のdef: {deftype!r}(page または gadget を指定してください)")
+    pages.resolve_prefixes({**STANDARD_PREFIXES, **(prefixes or {})})
+    # class に対応するページがないときに使う組み込みのコレクションのページ
+    gadgetset[BUILTIN_COLLECTION_GADGET] = builtin_collection_gadget(
+        label_predicate or "rdfs:label", label_lang
+    )
+    pages.pagedict[BUILTIN_COLLECTION_PAGE] = {
+        "type": "collection",
+        "gadget": [BUILTIN_COLLECTION_GADGET],
+        "tabs": None,
+        "query": None,
+        "class": [],
+    }
     validate_pages(pages, gadgetset)
     return {
         "pages": pages,
@@ -1286,6 +1457,7 @@ def build_application(
         data_dir,
     )
     application.max_rows = cfg["max_rows"]
+    application.prefixes = {**STANDARD_PREFIXES, **(cfg["prefixes"] or {})}
     return application
 
 

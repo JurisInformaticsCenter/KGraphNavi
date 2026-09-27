@@ -35,7 +35,11 @@ def render_page(
     """
     frames = application.make_page(page_name, uri, params=params)
     page_body = "\n".join(frames)
-    title = f"{page_title}({page_name})" if uri else page_name
+    if page_name.startswith("_"):
+        # 組み込みのページはページ名を出さない
+        title = page_title or page_name
+    else:
+        title = f"{page_title}({page_name})" if uri else (page_title or page_name)
     html = make_html(
         page_body,
         title,
@@ -57,8 +61,15 @@ def init_app(app):
             for uri, label in application.resource_samples
         ]
         collection_samples_encode = [
-            (urllib.parse.urlencode({"class": class_uri}), label)
-            for class_uri, label in application.collection_samples
+            (
+                urllib.parse.urlencode(
+                    {"view": value}
+                    if application.pages.pagedict.get(value, {}).get("type") == "collection"
+                    else {"class": value}
+                ),
+                label,
+            )
+            for value, label in application.collection_samples
         ]
         return render_template(
             'index.html',
@@ -118,42 +129,54 @@ def init_app(app):
 # RDFエンティティ集合のページ
     @app.route("/collection", methods=['GET'])
     def collection() -> Response:
-        """RDFクラスに属するエンティティの集合を表示する。"""
+        """エンティティの集合（コレクション）を表示する。
+
+        /collection?class=<クラスURI>   クラスに対応するページ（なければ組み込みのページ）
+        /collection?view=<ページ名>     ページを直接指定（ページの query で集合を定義する場合など）
+        """
         application = current_app.extensions["application"]
-        class_uri = request.args.get("class")
-        if not class_uri:
-            return error("classパラメタがない", "/collection?class=xxx と指定してください",)
         # class もコレクションを定義するパラメータとして渡す
         params = request_params(request.args, path=request.path)
-        # RDFクラスに対応するPage名を取得する
-        page_name = "MountainCollection"
-        if page_name is None:
-            return error("collection Pageがない", class_uri,)
+        view = params.get("view")
+        class_uri = params.get("class")
+        if view:
+            page = application.pages.pagedict.get(view)
+            if page is None or page.get("type") != "collection":
+                return error("コレクションのページがない", f"view={view} というコレクションのページは定義されていません"), 404
+            page_name = view
+        elif class_uri:
+            page_name = application.collection_page(class_uri)
+        else:
+            return error(
+                "classパラメタがない",
+                "/collection?class=<クラスURI> または /collection?view=<ページ名> と指定してください",
+            ), 400
+        page_title = get_localname(class_uri) if class_uri else view
         return render_page(
             application,
             page_name,
             uri=class_uri,
             params=params,
-            page_title=get_localname(class_uri),
+            page_title=page_title,
             category=page_name,
         )
 
 # グラフのページ
     @app.route("/graph", methods=["GET"])
     def graph() -> Response:
-        """KG全体を対象とするGraphページを表示する。"""
+        """KG全体を対象とするGraphページ（type: graph の最初のページ）を表示する。"""
         application = current_app.extensions["application"]
-        page_name = "KGGraph"
-    
-        if page_name not in application.pages.pagedict:
+        page_name = application.graph_page()
+        if page_name is None:
             return error(
-                "KG全体用Graph Pageがない",
-                page_name,
-            )
+                "KG全体用のページがない",
+                "設定ファイルに type: graph のページを定義してください",
+            ), 404
         return render_page(
             application,
             page_name,
             None,
+            params=request_params(request.args, path=request.path),
             page_title="Knowledge Graph",
             category=page_name,
         )

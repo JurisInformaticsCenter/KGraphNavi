@@ -34,6 +34,7 @@
 -   def: page
     name: MountainCollection
     type: collection
+    class: dbo:Mountain
     query: |
       SELECT ?uri
       WHERE {

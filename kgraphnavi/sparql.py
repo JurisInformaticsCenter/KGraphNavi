@@ -20,13 +20,22 @@ from .terms import iri_term, literal_term, predicate_term, ValueTermError
 
 logger = logging.getLogger(__name__)
 
+# どの設定でも使える標準の接頭辞（設定の prefixes で上書きできる）
+STANDARD_PREFIXES = {
+    "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+    "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
+    "xsd": "http://www.w3.org/2001/XMLSchema#",
+    "owl": "http://www.w3.org/2002/07/owl#",
+}
+
+
 def make_prefix(prefixes):
-    """prefix辞書からSPARQL PREFIX文を生成する"""
-    if not prefixes:
-        return ""
+    """prefix辞書からSPARQL PREFIX文を生成する（標準の接頭辞を含む）"""
+    merged = dict(STANDARD_PREFIXES)
+    merged.update(prefixes or {})
     return "\n".join(
         f"PREFIX {name}: <{uri}>"
-        for name, uri in prefixes.items()
+        for name, uri in merged.items()
     ) + "\n\n"
 
 def expand_iri(value):
@@ -182,6 +191,19 @@ class SPARQL:
                 return priority_class
         return None
     
+    def get_superclasses_among(self, class_uri, candidates):
+        """candidates のうち、class_uri の（推移的な）上位クラスであるものの集合を返す。"""
+        if not candidates:
+            return set()
+        values = " ".join(iri_term(uri) for uri in candidates)
+        query = f"""
+        SELECT DISTINCT ?class WHERE {{
+            {iri_term(class_uri)} rdfs:subClassOf+ ?class .
+            VALUES ?class {{ {values} }}
+        }}
+        """
+        return set(self.query_values(query, "class"))
+
     def get_count(self, uri, predicate):
         """uriからpredicateがいくつあるかを返す"""
         query = (
