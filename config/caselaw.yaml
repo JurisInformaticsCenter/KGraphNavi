@@ -166,7 +166,7 @@
     get:
         type: sparql
         src: |
-            select ?caseno ?casename ?casecategory ?casecategorylabel ?holding ?headnote ?court ?judgmentdate ?result ?category ?pdf ?id ?year ?npages where {
+            select ?caseno ?casename ?casecategory ?casecategorylabel ?holding ?headnote ?court ?judgmentdate ?result ?field ?pdf ?id ?year ?npages where {
             graph <http://ds.rois.ac.jp/caselaw/> {
                 $uri caselawp:id ?id .
                 ?trialid a caselawo:Trial; caselawp:id ?id .
@@ -181,7 +181,7 @@
                 OPTIONAL {?trialid caselawp:court ?court}
                 OPTIONAL {?judgmentid caselawp:judgmentdate ?judgmentdate}
                 OPTIONAL {?judgmentid caselawp:disposition|caselawp:judgment_result ?result}
-                OPTIONAL {?docid caselawp:caselawcategory ?category}
+                OPTIONAL {?trialid caselawp:分野 ?field}
                 OPTIONAL {?docid foaf:primaryTopic ?pdf}
                 OPTIONAL {?docid dcterms:extent ?npages}
             }}
@@ -208,8 +208,8 @@
             - id: result
               label: 結果/判決結果
               display: localname
-            - id: category
-              label: 判例カテゴリ
+            - id: field
+              label: 分野
               display: localname
             - id: id
               label: ID
