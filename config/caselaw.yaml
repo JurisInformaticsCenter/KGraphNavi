@@ -382,6 +382,7 @@
         columns:
             - id: term
               label: ターム
+              type: link
               display: localname
               width: 200
 -   def: gadget
@@ -540,6 +541,7 @@
               width: 200
             - id: person
               label: 人名
+              type: link
               display: localname
 -   def: gadget
     name: Party
@@ -565,6 +567,7 @@
               width: 200
             - id: person
               label: 人名
+              type: link
               display: localname
 -   def: gadget
     name: Involved

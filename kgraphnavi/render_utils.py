@@ -170,7 +170,13 @@ def get_item_data(column, record):
         "type": item_type,
     }
     # リンク（設定の href があればそれを優先する）
-    if column.get("href"):
+    # link: <変数名> は、その変数のリソースのページへのリンクにする（例: 事件名 → 判例）
+    if column.get("link"):
+        target = record.get(column["link"])
+        if target is not None:
+            cell["type"] = "link"
+            cell["href"] = make_resource_url(target)
+    elif column.get("href"):
         cell["href"] = get_column_href(column, record)
     elif item_type == "link":
         cell["href"] = make_resource_url(data)

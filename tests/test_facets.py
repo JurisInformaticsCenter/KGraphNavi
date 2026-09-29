@@ -566,3 +566,31 @@ def test_link_columns():
     # 設定の href があればそれを使う
     assert cells["year"] == {"value": "HTML文書", "type": "directlink", "href": "/data/2003/D020518_hanrei.html"}
     assert cells["doc"]["href"] == "/resource?uri=http%3A%2F%2Fexample.org%2Fdoc%2F1"
+
+
+def test_link_to_other_variable_and_localname_link():
+    from kgraphnavi.app import prepare_columns
+    from kgraphnavi.render_utils import get_record_cells
+
+    R = "http://ds.rois.ac.jp/caselaw/resource/"
+    record = {
+        "role": {"type": "uri", "value": R + "裁判長裁判官"},
+        "person": {"type": "uri", "value": R + "尾島明"},
+        "doc": {"type": "uri", "value": R + "D020518"},
+        "label": {"type": "literal", "value": "休職処分取消事件"},
+    }
+    columns = prepare_columns([record], [
+        {"id": "role", "display": "localname"},
+        {"id": "person", "type": "link", "display": "localname"},
+        {"id": "label", "link": "doc"},
+    ])
+    cells = get_record_cells(record, columns)
+    # 人名はローカル名を表示し、その人のリソースのページへリンクする
+    assert cells["person"]["value"] == "尾島明"
+    assert cells["person"]["href"].startswith("/resource?uri=http%3A%2F%2Fds.rois.ac.jp")
+    # link: doc は、表示は label のまま、doc のリソースへリンクする
+    assert cells["label"]["value"] == "休職処分取消事件"
+    assert cells["label"]["type"] == "link"
+    assert cells["label"]["href"] == "/resource?uri=" + "http%3A%2F%2Fds.rois.ac.jp%2Fcaselaw%2Fresource%2FD020518"
+    # 役割はリンクにしない
+    assert "href" not in cells["role"]
