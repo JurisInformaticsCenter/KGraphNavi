@@ -53,6 +53,28 @@
   gadget: [Out, PageFrequencyDistributionBar]
 ```
 
+### ガジェットの一覧をコレクションとして表示する（collection）
+
+リソースのページのガジェットに `collection:` を書くと、見出しの横に「コレクションとして表示」のボタンが出ます。押すと、そのガジェットの一覧の `var` の列を要素とするコレクションを表示します（ファセットでの絞り込みや統計も使えます）。
+
+```yaml
+- def: gadget
+  name: Involved                 # 人物のページの「関与した裁判」
+  collection:
+    var: judge                   # コレクションの要素にする列（SPARQL の変数名）
+    class: caselawo:Trial        # 要素のクラス。そのクラスのコレクションのページで表示する
+    title: 関与した裁判           # コレクションのページの見出し（「尾島明: 関与した裁判」）
+    label: 関与した裁判をコレクションとして表示   # ボタンの文字
+  get:
+    type: sparql
+    src: |
+      select distinct ?caseno ?casename ?role ?judge where { ... $uri ... }
+```
+
+- ボタンのリンク先は `/collection?from=<ガジェット名>&uri=<表示中のリソース>&class=<クラス>` です。
+- ガジェットの SPARQL をそのまま副問い合わせとして使います（`$uri` には表示中のリソースが入ります）。
+- `class` を省略すると、組み込みのページ（名前とURIの一覧）で表示します。
+
 ### ページの選び方
 
 `/collection?class=<クラス>` では、次の順でページを選びます。
@@ -149,6 +171,7 @@
 | --- | --- |
 | `class=<クラスURI>` | コレクションのクラス（`dbo:Mountain` のような接頭辞付きの名前も可） |
 | `view=<ページ名>` | コレクションのページを直接指定 |
+| `from=<ガジェット名>` / `uri=<URI>` | ガジェットの一覧をコレクションとして表示 |
 | `f.<name>=<値>` | 値の選択。繰り返すと OR |
 | `f.<name>.min=<下限>` / `f.<name>.max=<上限>` | 範囲 |
 | `page=<番号>` | ページ送り（1始まり） |

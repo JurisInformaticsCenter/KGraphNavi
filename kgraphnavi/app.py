@@ -18,6 +18,7 @@
 """
 import os
 import re
+from urllib.parse import urlencode
 from html import escape as html_escape
 from pathlib import Path
 import argparse
@@ -177,7 +178,7 @@ class GadgetNotFound(Exception):
 
 class Gadget:
     """Gadget"""
-    __slots__ = ("extract_method", "show_method", "height", "sparql_client", "title")
+    __slots__ = ("extract_method", "show_method", "height", "sparql_client", "title", "collection_config")
     EXTRACTORS = {
         "sparql": "extract_sparql",
         "facet": "extract_facet",
@@ -196,14 +197,19 @@ class Gadget:
     def __repr__(self):
         return f'Config(extract={self.extract_method!r}, show={self.show_method!r})'
 
-    def __init__(self, config_get, config_show, height, title=None):
-        """Gadgetの生成。get内容の辞書と、show内容の辞書、gadgetの高さ、見出しを受け取る"""
+    def __init__(self, config_get, config_show, height, title=None, collection=None):
+        """Gadgetの生成。get内容の辞書と、show内容の辞書、gadgetの高さ、見出しを受け取る
+
+        collection: 一覧の列（var）の値をコレクションとして表示するボタンの設定
+                    {"var": 変数名, "class": 要素のクラス, "label": ボタンの文字}
+        """
         self.extract_method = config_get
         self.show_method = config_show
         self.height = height
         self.sparql_client = None # あとで設定
         # 見出し。省略時はファセットなら label、それ以外はガジェット名
         self.title = title
+        self.collection_config = collection
 
     @property
     def is_facet(self):
@@ -759,9 +765,22 @@ class Application:
             pager = render_pager(params, page_number(params), page_size, collection.count())
             gadget_body = pager + gadget_body + pager
         title = self.gadget_title(gadget_name, gadget)
+        action = ""
+        config = getattr(gadget, "collection_config", None)
+        if config and content and collection is None:
+            # 一覧をコレクションとして表示するボタン（このガジェットの SPARQL でコレクションを定義）
+            query = {"from": name}
+            if uri:
+                query["uri"] = uri
+            if config.get("class"):
+                query["class"] = config["class"]
+            action = (
+                f'<a class="gadget-action" href="/collection?{html_escape(urlencode(query))}">'
+                f'{html_escape(config.get("label") or "コレクションとして表示")}</a>'
+            )
         return f"""
         <section class="gadget">
-        <h2 class="gadget-title">{html_escape(title)}</h2>
+        <h2 class="gadget-title">{html_escape(title)}{action}</h2>
         {gadget_body}
         </section>
         """
@@ -914,8 +933,12 @@ class Application:
             "Collectionを作成するためのclassまたはuriがありません"
         )
 
-    def make_page(self, page, uri, params=None):
-        """ページ定義に従ってページを作成する。"""
+    def make_page(self, page, uri, params=None, base_collection=None):
+        """ページ定義に従ってページを作成する。
+
+        base_collection: コレクションのページで、ページ定義の代わりに使うコレクション
+                         （ガジェットの一覧から作ったコレクションなど）
+        """
         logger.info(
             "make_page: page=%r uri=%r params=%r",
             page,
@@ -926,7 +949,9 @@ class Application:
         if params is None:
             params = {}
         collection = None
-        if page_def.get("type") == "collection":
+        if base_collection is not None:
+            collection = base_collection
+        elif page_def.get("type") == "collection":
             collection = self.get_collection(
                 uri,
                 params=params,
@@ -1005,6 +1030,32 @@ class Application:
             self.class_page_cache.clear()
         self.class_page_cache[class_uri] = page
         return page
+
+    def gadget_collection(self, gadget_name, uri=None):
+        """ガジェットの一覧（collection.var の列）をコレクションにする。
+
+        ガジェットの SPARQL を副問い合わせとして使い、var の値を要素とする。
+        SPARQL 中の $uri には uri を入れる。
+        """
+        gadget = self.gadgetset.get(gadget_name)
+        config = getattr(gadget, "collection_config", None)
+        if gadget is None or not config:
+            raise GadgetError(f"gadget({gadget_name})はコレクションにできません")
+        if gadget.extract_method.get("type") != "sparql":
+            raise GadgetError(f"gadget({gadget_name})の取得方法は sparql でなければなりません")
+        src = gadget.extract_method.get("src", "")
+        if "$uri" in src and not uri:
+            raise GadgetError(f"gadget({gadget_name})のコレクションには uri が必要です")
+        query = (
+            f"SELECT DISTINCT (?{config['var']} AS ?uri)\n"
+            "WHERE {\n"
+            "  {\n"
+            f"{src.strip()}\n"
+            "  }\n"
+            f"  FILTER(isIRI(?{config['var']}))\n"
+            "}"
+        )
+        return Collection.from_query(self.sparql_client, query, params={"uri": uri} if uri else {})
 
     def graph_page(self):
         """知識グラフ全体（/graph）のページ名。なければNone"""
@@ -1267,6 +1318,7 @@ def setconfig(config, base_dir=None):
         "def",
         "name",
         "title", # 見出し（省略時はガジェット名、ファセットは get.label）
+        "collection", # 一覧をコレクションとして表示するボタン {var, class, label}
         "height",
         "get",
         "show",
@@ -1361,11 +1413,22 @@ def setconfig(config, base_dir=None):
             if str(name).startswith("_"):
                 raise ConfigError(f"_ で始まるgadget名は組み込み用です: {name}")
             height = config.get("height", 500)
+            gadget_collection = config.get("collection")
+            if gadget_collection is not None:
+                if isinstance(gadget_collection, str):
+                    gadget_collection = {"var": gadget_collection}
+                if not isinstance(gadget_collection, dict) or not re.fullmatch(
+                    r"[A-Za-z_][A-Za-z0-9_]*", str(gadget_collection.get("var", ""))
+                ):
+                    raise ConfigError(f"gadget({name})のcollectionには var（変数名）が必要です")
+                if config["get"].get("type") != "sparql":
+                    raise ConfigError(f"gadget({name})のcollectionは get.type: sparql のガジェットでだけ使えます")
             gadgetset[name] = Gadget(
                 config_get=config["get"],
                 config_show=config["show"],
                 height=height,
                 title=config.get("title"),
+                collection=gadget_collection,
             )
         else: # 未知のdef
             raise ConfigError(f"未知のdef: {deftype!r}(page または gadget を指定してください)")

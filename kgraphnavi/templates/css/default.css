@@ -553,3 +553,27 @@ form.facet {
 .range-separator {
   color: #64748b;
 }
+
+/* ガジェットの一覧をコレクションとして表示するボタン */
+.gadget-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.gadget-action {
+  margin-left: auto;
+  margin-right: 8px;
+  padding: 2px 10px;
+  border: 1px solid #0284c7;
+  border-radius: 4px;
+  color: #0369a1;
+  font-size: 13px;
+  font-weight: normal;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.gadget-action:hover {
+  background: #e0f2fe;
+}

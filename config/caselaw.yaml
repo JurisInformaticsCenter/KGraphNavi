@@ -453,6 +453,11 @@
               width: 200
 -   def: gadget
     name: CaseLawContainingThisTerm
+    collection:
+        title: このタームを含む判決文書
+        var: doc
+        class: caselawo:CaseLawDocument
+        label: 判決文書をコレクションとして表示
     get:
         type: sparql
         src: |
@@ -470,6 +475,11 @@
               width: 200
 -   def: gadget
     name: CaseLawReferThis
+    collection:
+        title: この法令を参照する判決文書
+        var: doc
+        class: caselawo:CaseLawDocument
+        label: 判決文書をコレクションとして表示
     get:
         type: sparql
         src: |
@@ -487,6 +497,11 @@
               width: 200
 -   def: gadget
     name: CaseLawReferThisPatent
+    collection:
+        title: この特許を参照する判決文書
+        var: doc
+        class: caselawo:CaseLawDocument
+        label: 判決文書をコレクションとして表示
     get:
         type: sparql
         src: |
@@ -504,6 +519,11 @@
               width: 200
 -   def: gadget
     name: CaseLawRelevantToThis
+    collection:
+        title: この事件の裁判
+        var: doc
+        class: caselawo:Trial
+        label: 裁判をコレクションとして表示
     get:
         type: sparql
         src: |
@@ -571,6 +591,11 @@
               display: localname
 -   def: gadget
     name: Involved
+    collection:
+        title: 関与した裁判
+        var: judge
+        class: caselawo:Trial
+        label: 関与した裁判をコレクションとして表示
     get:
         type: sparql
         src: |
@@ -941,6 +966,77 @@
         label: 年
         predicate: caselawp:year
         datatype: integer
+        bins: 20
+    show:
+        type: facet
+# 裁判のコレクション（人物のページの「関与した裁判」などから表示する）
+-   def: page
+    name: Trials
+    type: collection
+    class: caselawo:Trial
+    sidebar:
+        - facet_suit_type
+        - facet_field
+        - facet_right_type
+        - facet_judgment_type
+        - facet_judgment_year
+    gadget:
+        - TrialList
+-   def: gadget
+    name: TrialList
+    title: 裁判
+    get:
+        type: sparql
+        page_size: 50
+        src: |
+            SELECT ?entity ?caseno ?casename ?court ?suit ?judgmentdate
+            WHERE {
+                $collection
+                OPTIONAL { ?entity caselawp:caseno ?caseno }
+                OPTIONAL { ?entity caselawp:casename ?casename }
+                OPTIONAL { ?entity caselawp:court|caselawp:裁判所名 ?court }
+                OPTIONAL { ?entity caselawp:訴訟類型 ?suit }
+                OPTIONAL {
+                    ?entity caselawp:id ?id .
+                    ?judgment a caselawo:Judgment ;
+                              caselawp:id ?id ;
+                              caselawp:judgmentdate ?judgmentdate .
+                }
+            }
+    show:
+        type: htable
+        group_by: entity
+        columns:
+            - id: entity
+              type: link
+              string: "?caseno"
+              label: 事件番号
+              width: 160
+            - id: casename
+              label: 事件名
+              width: 320
+            - id: court
+              label: 裁判所
+              display: localname
+              width: 140
+            - id: suit
+              label: 訴訟類型
+              display: localname
+              width: 90
+            - id: judgmentdate
+              label: 裁判年月日
+              width: 100
+# 裁判年月日は判決（Judgment）にあり、caselawp:id でたどる
+-   def: gadget
+    name: facet_judgment_year
+    get:
+        type: facet
+        kind: range
+        name: judgment_year
+        label: 裁判年
+        predicate: caselawp:id/^caselawp:id/caselawp:judgmentdate
+        datatype: date
+        unit: year
         bins: 20
     show:
         type: facet

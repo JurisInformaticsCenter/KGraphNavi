@@ -18,6 +18,7 @@ from .render_utils import get_highest_priority_item, get_localname
 from .app import error
 from .makehtml import make_html
 from .facets import request_params
+from .app import BUILTIN_COLLECTION_PAGE
 from .errors import KGraphError, SparqlError      # 作成した例外クラス
 logger = logging.getLogger(__name__)
 
@@ -29,11 +30,12 @@ def render_page(
     params: dict | None = None,
     page_title: str="",
     category: str | None = None,
+    base_collection=None,
 ) -> Response:
     """
     page名 と uri に対応するページを生成して返す。
     """
-    frames = application.make_page(page_name, uri, params=params)
+    frames = application.make_page(page_name, uri, params=params, base_collection=base_collection)
     page_body = "\n".join(frames)
     if page_name.startswith("_"):
         # 組み込みのページはページ名を出さない
@@ -133,12 +135,18 @@ def init_app(app):
 
         /collection?class=<クラスURI>   クラスに対応するページ（なければ組み込みのページ）
         /collection?view=<ページ名>     ページを直接指定（ページの query で集合を定義する場合など）
+        /collection?from=<ガジェット名>&uri=<URI>
+                                        ガジェットの一覧をコレクションとして表示
+                                        （class= があればそのクラスのページで表示）
         """
         application = current_app.extensions["application"]
         # class もコレクションを定義するパラメータとして渡す
         params = request_params(request.args, path=request.path)
         view = params.get("view")
         class_uri = params.get("class")
+        source = params.get("from")
+        if source:
+            return gadget_collection_page(application, params, source, view, class_uri)
         if view:
             page = application.pages.pagedict.get(view)
             if page is None or page.get("type") != "collection":
@@ -159,6 +167,34 @@ def init_app(app):
             params=params,
             page_title=page_title,
             category=page_name,
+        )
+
+    def gadget_collection_page(application, params, source, view, class_uri):
+        """ガジェットの一覧から作ったコレクションを表示する。"""
+        gadget = application.gadgetset.get(source)
+        if gadget is None or not getattr(gadget, "collection_config", None):
+            return error("コレクションにできる一覧がない", f"from={source} というガジェットはコレクションにできません"), 404
+        target = params.get("uri")
+        base = application.gadget_collection(source, target)
+        if view:
+            page = application.pages.pagedict.get(view)
+            if page is None or page.get("type") != "collection":
+                return error("コレクションのページがない", f"view={view} というコレクションのページは定義されていません"), 404
+            page_name = view
+        elif class_uri:
+            page_name = application.collection_page(class_uri)
+        else:
+            page_name = BUILTIN_COLLECTION_PAGE
+        list_title = gadget.collection_config.get("title") or application.gadget_title(source, gadget)
+        page_title = f"{get_localname(target)}: {list_title}" if target else list_title
+        return render_page(
+            application,
+            page_name,
+            uri=None,
+            params=params,
+            page_title=page_title,
+            category=page_name,
+            base_collection=base,
         )
 
 # グラフのページ

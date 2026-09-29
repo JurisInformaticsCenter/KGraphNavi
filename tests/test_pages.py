@@ -297,3 +297,103 @@ def test_graph_route_without_graph_page(tmp_path, monkeypatch):
     )
     client = create_app(build_application(str(config), endpoint="http://example.org/sparql")).test_client()
     assert client.get("/graph").status_code == 404
+
+
+# --------------------------------------------------
+# ガジェットの一覧をコレクションとして表示
+# --------------------------------------------------
+
+GADGET_COLLECTION_CONFIG = """
+- title: TestKG
+- prefixes:
+    ex: http://example.org/
+- def: page
+  name: Person
+  type: http://example.org/Person
+  gadget: [Involved]
+- def: page
+  name: Trials
+  type: collection
+  class: ex:Trial
+  gadget: [TrialList]
+- def: gadget
+  name: Involved
+  collection:
+    var: trial
+    class: ex:Trial
+    title: 関与した裁判
+    label: 関与した裁判をコレクションとして表示
+  get:
+    type: sparql
+    src: "select ?trial ?name where { ?trial ex:judge $uri ; ex:name ?name }"
+  show:
+    type: htable
+- def: gadget
+  name: TrialList
+  get:
+    type: sparql
+    src: "SELECT ?entity WHERE { $collection ?entity ex:name ?n }"
+  show:
+    type: htable
+"""
+
+
+@pytest.fixture
+def gadget_collection_client(tmp_path, monkeypatch):
+    from kgraphnavi import sparql as sparql_module
+
+    sent = []
+
+    def fake_exsparql(self, query):
+        sent.append(query)
+        if "?target where" in query:
+            return [{"target": {"type": "uri", "value": "http://example.org/Person"}}]
+        if "select ?trial ?name" in query and "SELECT DISTINCT (?trial AS ?uri)" not in query:
+            return [{"trial": {"type": "uri", "value": "http://example.org/T1"},
+                     "name": {"type": "literal", "value": "事件1"}}]
+        return []
+
+    monkeypatch.setattr(sparql_module.SPARQL, "exsparql", fake_exsparql)
+    config = tmp_path / "test.yaml"
+    config.write_text(GADGET_COLLECTION_CONFIG, encoding="utf-8")
+    application = build_application(str(config), endpoint="http://example.org/sparql")
+    return create_app(application).test_client(), sent
+
+
+def test_gadget_shows_collection_button(gadget_collection_client):
+    client, _sent = gadget_collection_client
+    html = client.get("/resource?uri=http://example.org/judgeA").get_data(as_text=True)
+    assert 'class="gadget-action"' in html
+    assert "関与した裁判をコレクションとして表示" in html
+    assert "/collection?from=Involved&amp;uri=http%3A%2F%2Fexample.org%2FjudgeA&amp;class=ex%3ATrial" in html
+
+
+def test_gadget_collection_page(gadget_collection_client):
+    client, sent = gadget_collection_client
+    sent.clear()
+    response = client.get("/collection?from=Involved&uri=http://example.org/judgeA&class=ex:Trial")
+    html = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "judgeA: 関与した裁判" in html
+    # 裁判のページ（class: ex:Trial）のガジェットに、一覧から作ったコレクションが渡る
+    query = next(q for q in sent if "?entity ex:name ?n" in q)
+    assert "SELECT DISTINCT (?trial AS ?uri)" in query
+    assert "?trial ex:judge <http://example.org/judgeA>" in query
+    assert "FILTER(isIRI(?trial))" in query
+
+
+def test_gadget_collection_errors(gadget_collection_client):
+    client, _sent = gadget_collection_client
+    assert client.get("/collection?from=TrialList").status_code == 404
+    assert client.get("/collection?from=Nothing").status_code == 404
+    # $uri を使うガジェットには uri が必要
+    assert client.get("/collection?from=Involved").status_code == 400
+
+
+def test_gadget_collection_config_validation():
+    with pytest.raises(ConfigError):
+        setconfig([{"def": "gadget", "name": "g", "collection": {"var": "a b"},
+                    "get": {"type": "sparql", "src": "x"}, "show": {"type": "htable"}}])
+    with pytest.raises(ConfigError):
+        setconfig([{"def": "gadget", "name": "g", "collection": "doc",
+                    "get": {"type": "list", "src": "x", "header": "a"}, "show": {"type": "htable"}}])
