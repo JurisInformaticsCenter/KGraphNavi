@@ -71,6 +71,7 @@ class DummyApplication:
     make_page = Application.make_page
     make_page_tabs = Application.make_page_tabs
     make_collection_header = Application.make_collection_header
+    condition_labels = Application.condition_labels
     make_gadgets = Application.make_gadgets
     resolve_gadget = Application.resolve_gadget
     _facet_for = Application._facet_for

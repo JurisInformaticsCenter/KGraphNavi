@@ -594,3 +594,65 @@ def test_link_to_other_variable_and_localname_link():
     assert cells["label"]["href"] == "/resource?uri=" + "http%3A%2F%2Fds.rois.ac.jp%2Fcaselaw%2Fresource%2FD020518"
     # 役割はリンクにしない
     assert "href" not in cells["role"]
+
+
+def test_link_to_collection_with_facet_value():
+    from kgraphnavi.app import prepare_columns
+    from kgraphnavi.render_utils import get_record_cells
+
+    O = "http://ds.rois.ac.jp/caselaw/ontology/"
+    R = "http://ds.rois.ac.jp/caselaw/resource/"
+    record = {
+        "casecategory": {"type": "uri", "value": R + "CaseCategory_行ヒ"},
+        "casecategorylabel": {"type": "literal", "value": "行政上告受理事件"},
+        "court": {"type": "uri", "value": R + "最高裁判所第一小法廷"},
+    }
+    columns = prepare_columns([record], [
+        {"id": "casecategorylabel", "collection": {
+            "class": "caselawo:Trial", "facet": "trial_case_category", "value": "casecategory"}},
+        {"id": "court", "display": "localname", "collection": {
+            "class": "caselawo:Trial", "facet": "trial_court"}},
+    ])
+    cells = get_record_cells(record, columns)
+    category = cells["casecategorylabel"]
+    assert category["value"] == "行政上告受理事件"
+    assert category["type"] == "link"
+    items = parse_qsl(urlsplit(category["href"]).query)
+    assert items == [("class", "caselawo:Trial"), ("f.trial_case_category", R + "CaseCategory_行ヒ")]
+    court = cells["court"]
+    assert court["value"] == "最高裁判所第一小法廷"
+    assert parse_qsl(urlsplit(court["href"]).query)[1] == ("f.trial_court", R + "最高裁判所第一小法廷")
+    # 値がなければリンクにしない
+    empty = get_record_cells({}, columns)
+    assert "href" not in empty["court"]
+
+
+def test_collection_header_uses_labels_for_iri_values():
+    O = "http://ds.rois.ac.jp/caselaw/ontology/"
+    R = "http://ds.rois.ac.jp/caselaw/resource/"
+
+    class LabelSPARQL(DummySPARQL):
+        def query(self, query, params=None):
+            self.calls.append((query, params or {}))
+            if "SAMPLE(?label) AS ?name" in query:
+                return [{"value": {"type": "uri", "value": R + "CaseCategory_行ヒ"},
+                         "name": {"type": "literal", "value": "行政上告受理事件"}}]
+            return [{"count": {"type": "literal", "value": "812"}}]
+
+    sparql = LabelSPARQL()
+    application = make_application({
+        "cat": facet_gadget("trial_case_category", "caselawp:casecategory", label="事件区分"),
+        "suit": facet_gadget("suit_type", "caselawp:訴訟類型", label="訴訟類型"),
+    }, sparql)
+    params = request_params(MultiDict([
+        ("class", O + "Trial"),
+        ("f.trial_case_category", R + "CaseCategory_行ヒ"),
+        ("f.suit_type", "民事訴訟"),   # IRI でない値はラベルを問い合わせない
+    ]), path="/collection")
+    html = application.make_collection_header(Collection.from_class(sparql, O + "Trial"), params)
+    assert "事件区分:</span> <span class=\"condition-value\"" in html
+    assert ">行政上告受理事件<" in html
+    assert ">民事訴訟<" in html
+    label_queries = [q for q, _ in sparql.calls if "SAMPLE(?label)" in q]
+    assert len(label_queries) == 1
+    assert "民事訴訟" not in label_queries[0]

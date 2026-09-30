@@ -18,7 +18,7 @@ import heapq
 import random
 from html import escape
 from collections import defaultdict
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 from urllib.parse import unquote
 from flask import render_template # show_chart が使う
 from .makehtml import make_table, make_kvtable
@@ -129,6 +129,26 @@ def make_resource_url(data):
         return ""
     return f"/resource?uri={quote(uri, safe='')}"
 
+def make_collection_url(config, record, default_var):
+    """値を持つコレクションへのURL（/collection?class=...&f.<facet>=<値>）を返す。
+
+    config: {"class": クラス, "facet": ファセット名, "value": 値の変数名（省略時はその列）}
+    値がなければ空文字列。
+    """
+    if not isinstance(config, dict) or not config.get("facet"):
+        return ""
+    value = get_raw_value(record.get(config.get("value") or default_var))
+    if value is None or value == "":
+        return ""
+    query = []
+    if config.get("class"):
+        query.append(("class", config["class"]))
+    if config.get("view"):
+        query.append(("view", config["view"]))
+    query.append((f"f.{config['facet']}", str(value)))
+    return "/collection?" + urlencode(query)
+
+
 def make_external_url(data):
     """RDF URIを外部URLとしてそのまま返す。"""
     return get_raw_value(data)
@@ -170,8 +190,15 @@ def get_item_data(column, record):
         "type": item_type,
     }
     # リンク（設定の href があればそれを優先する）
+    # collection: {class, facet, value} は、その値を持つコレクションへのリンクにする
+    #   （例: 事件区分 → その事件区分の裁判のコレクション）
     # link: <変数名> は、その変数のリソースのページへのリンクにする（例: 事件名 → 判例）
-    if column.get("link"):
+    if column.get("collection"):
+        href = make_collection_url(column["collection"], record, key)
+        if href:
+            cell["type"] = "link"
+            cell["href"] = href
+    elif column.get("link"):
         target = record.get(column["link"])
         if target is not None:
             cell["type"] = "link"

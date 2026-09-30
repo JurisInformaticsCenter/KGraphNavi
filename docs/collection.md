@@ -75,6 +75,23 @@
 - ガジェットの SPARQL をそのまま副問い合わせとして使います（`$uri` には表示中のリソースが入ります）。
 - `class` を省略すると、組み込みのページ（名前とURIの一覧）で表示します。
 
+### 表の値から、その値を持つコレクションへ移る（列の collection）
+
+表（`htable` / `vtable`）の列に `collection:` を書くと、その値のリンク先が「その値で絞り込んだコレクション」になります。
+
+```yaml
+columns:
+  - id: casecategorylabel        # 表示するのはラベル
+    label: 事件区分
+    collection:
+      class: caselawo:Trial      # 移り先のコレクションのクラス（view: でページ名の指定も可）
+      facet: trial_case_category # 絞り込むファセットの名前（そのページにあるファセット）
+      value: casecategory        # ファセットの値にする変数（省略時はこの列の値）
+```
+
+リンク先は `/collection?class=caselawo:Trial&f.trial_case_category=<値>` です。移り先ではファセットがチェック済みになり、条件の ✕ で外したり、他の条件と組み合わせたりできます。
+現在の条件の値が IRI のときは、そのラベル（ファセットの `label_predicate`、既定 `rdfs:label`）を表示します。
+
 ### ページの選び方
 
 `/collection?class=<クラス>` では、次の順でページを選びます。

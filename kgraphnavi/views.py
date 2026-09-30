@@ -18,7 +18,7 @@ from .render_utils import get_highest_priority_item, get_localname
 from .app import error
 from .makehtml import make_html
 from .facets import request_params
-from .app import BUILTIN_COLLECTION_PAGE
+from .app import BUILTIN_COLLECTION_PAGE, expand_prefixed
 from .errors import KGraphError, SparqlError      # 作成した例外クラス
 logger = logging.getLogger(__name__)
 
@@ -159,7 +159,9 @@ def init_app(app):
                 "classパラメタがない",
                 "/collection?class=<クラスURI> または /collection?view=<ページ名> と指定してください",
             ), 400
-        page_title = get_localname(class_uri) if class_uri else view
+        page_title = (
+            get_localname(expand_prefixed(class_uri, application.prefixes)) if class_uri else view
+        )
         return render_page(
             application,
             page_name,

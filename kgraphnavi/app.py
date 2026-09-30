@@ -30,8 +30,8 @@ from .render_utils import show_vertical_table, show_horizontal_table, show_facet
 from .render_utils import show_chart, show_network, pairs2adjacent, show_adjacentnetwork
 from .sparql import SPARQL, STANDARD_PREFIXES
 from .collection import Collection
-from .errors import ConfigError, GadgetError, ShowError
-from .terms import predicate_term, literal_term, language_tag
+from .errors import ConfigError, GadgetError, ShowError, KGraphError
+from .terms import predicate_term, literal_term, language_tag, is_iri, iri_term
 from .facets import (
     facet_selection,
     page_number,
@@ -998,7 +998,39 @@ class Application:
             extract_method = getattr(gadget, "extract_method", {}) or {}
             if extract_method.get("type") == "facet" and extract_method.get("name"):
                 definitions[extract_method["name"]] = extract_method
-        return render_conditions(params, definitions, count=collection.count())
+        labels = self.condition_labels(params, definitions)
+        return render_conditions(params, definitions, count=collection.count(), labels=labels)
+
+    def condition_labels(self, params, definitions):
+        """現在の条件の値（IRI）のラベルを、1回の問い合わせでまとめて取得する。"""
+        values, _ranges = facet_selection(params)
+        by_predicate = {}
+        for name, selected in values.items():
+            definition = definitions.get(name) or {}
+            label_predicate = definition.get("label_predicate", "rdfs:label")
+            for value in selected:
+                if is_iri(value):
+                    by_predicate.setdefault(label_predicate, set()).add(value)
+        labels = {}
+        for label_predicate, iris in by_predicate.items():
+            query = (
+                "SELECT ?value (SAMPLE(?label) AS ?name)\n"
+                "WHERE {\n"
+                f"    VALUES ?value {{ {' '.join(iri_term(v) for v in sorted(iris))} }}\n"
+                f"    ?value {predicate_term(label_predicate)} ?label .\n"
+                "}\n"
+                "GROUP BY ?value"
+            )
+            try:
+                rows = self.sparql_client.query(query)
+            except KGraphError:
+                # ラベルが取れなくても条件の表示は続ける
+                logger.warning("条件のラベルを取得できませんでした", exc_info=True)
+                continue
+            for row in rows or []:
+                if "value" in row and "name" in row:
+                    labels[row["value"]["value"]] = row["name"]["value"]
+        return labels
 
     # 記憶するクラスの数の上限
     CLASS_PAGE_CACHE_SIZE = 1000

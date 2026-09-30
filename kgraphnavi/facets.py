@@ -213,7 +213,7 @@ def range_text(low, high):
     return f"{high} 以下"
 
 
-def render_conditions(params, definitions, count=None):
+def render_conditions(params, definitions, count=None, labels=None):
     """「現在の条件」と件数を描画する。
 
     definitions: ファセット名 → ファセット定義（見出しの取得用）
@@ -228,7 +228,8 @@ def render_conditions(params, definitions, count=None):
             chips.append(
                 '<span class="condition">'
                 f'<span class="condition-name">{escape(label)}:</span> '
-                f'<span class="condition-value" title="{escape(value)}">{escape(value_label(value))}</span>'
+                f'<span class="condition-value" title="{escape(value)}">'
+                f'{escape((labels or {}).get(value) or value_label(value))}</span>'
                 f'<a class="condition-remove" href="{escape(url)}" title="この条件を外す">✕</a>'
                 "</span>"
             )

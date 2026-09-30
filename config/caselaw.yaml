@@ -195,7 +195,11 @@
               label: 事件名
             - id: casecategorylabel
               label: 事件区分
-              link: casecategory
+              # その事件区分の裁判のコレクションへ
+              collection:
+                  class: caselawo:Trial
+                  facet: trial_case_category
+                  value: casecategory
             - id: holding
               label: 判示事項
             - id: headnote
@@ -203,6 +207,10 @@
             - id: court
               label: 裁判所
               display: localname
+              # その裁判所の裁判のコレクションへ
+              collection:
+                  class: caselawo:Trial
+                  facet: trial_court
             - id: judgmentdate
               label: 判決言い渡し日
             - id: result
@@ -975,6 +983,8 @@
     type: collection
     class: caselawo:Trial
     sidebar:
+        - facet_trial_court
+        - facet_trial_case_category
         - facet_suit_type
         - facet_field
         - facet_right_type
@@ -994,7 +1004,7 @@
                 $collection
                 OPTIONAL { ?entity caselawp:caseno ?caseno }
                 OPTIONAL { ?entity caselawp:casename ?casename }
-                OPTIONAL { ?entity caselawp:court|caselawp:裁判所名 ?court }
+                OPTIONAL { ?entity caselawp:court ?court }
                 OPTIONAL { ?entity caselawp:訴訟類型 ?suit }
                 OPTIONAL {
                     ?entity caselawp:id ?id .
@@ -1038,5 +1048,28 @@
         datatype: date
         unit: year
         bins: 20
+    show:
+        type: facet
+# 裁判（Trial）に直接付いている事件区分・裁判所のファセット
+# （判決文書のページの「事件区分」「裁判所」から、その値の裁判のコレクションへ移るときに使う）
+-   def: gadget
+    name: facet_trial_case_category
+    get:
+        type: facet
+        name: trial_case_category
+        label: 事件区分
+        predicate: caselawp:casecategory
+        value_type: iri
+        limit: 30
+    show:
+        type: facet
+-   def: gadget
+    name: facet_trial_court
+    get:
+        type: facet
+        name: trial_court
+        label: 裁判所
+        predicate: caselawp:court
+        limit: 30
     show:
         type: facet
