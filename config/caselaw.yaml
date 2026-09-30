@@ -2,6 +2,7 @@
 -   describe: 日本の判例に関するデータ
 -   rdfstore: virtuoso
 -   label: rdfs:label
+-   text_search: auto   # 候補の検索: auto（bif:contains が使えれば使う）/ bif / contains
 -   prefixes:
         caselawo: "http://ds.rois.ac.jp/caselaw/ontology/"
         caselawp: "http://ds.rois.ac.jp/caselaw/property/"

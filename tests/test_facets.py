@@ -768,3 +768,107 @@ def test_conditions_show_all_mode():
     assert "ターム（すべて）:" in render_conditions(params, {"term": definition})
     params = request_params(MultiDict([("f.term", TERM_A), ("f.term", TERM_B)]), path="/collection")
     assert "ターム:" in render_conditions(params, {"term": definition})
+
+
+# --------------------------------------------------
+# 候補の検索: Virtuoso の全文索引（bif:contains）
+# --------------------------------------------------
+
+from kgraphnavi.collection import bif_text_expression
+from kgraphnavi.app import probe_bif_contains
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("写真", '"写真"'),
+    ("パロディー 写真", '"パロディー" AND "写真"'),
+    ('写"真*', '"写" AND "真"'),       # 検索式の記号は取り除く
+    ("  ", None),
+    ('"*"', None),
+])
+def test_bif_text_expression(text, expected):
+    assert bif_text_expression(text) == expected
+
+
+def test_facet_query_bif():
+    collection = Collection.from_class(None, MOUNTAIN)
+    query = collection.facet_query("dcterms:subject", search="写真", search_method="bif", value_type="iri")
+    assert 'bif:contains "\\"写真\\""' in query
+    assert "CONTAINS(LCASE" not in query
+    # ラベルが一致する値を先に絞り込む
+    assert query.index("bif:contains") < query.index(f"<{MOUNTAIN}>")
+    # IRI の値は、値自身では探さない
+    assert "?_search_uri" not in query
+    literal = collection.facet_query("ex:p", search="写真", search_method="bif", value_type="literal")
+    assert "?_search_label bif:contains" not in literal and "?value bif:contains" in literal
+    # 語が残らない検索は CONTAINS で行う
+    fallback = collection.facet_query("ex:p", search="*", search_method="bif")
+    assert "bif:contains" not in fallback and "CONTAINS(LCASE" in fallback
+
+
+class ProbeSPARQL:
+    def __init__(self, labels, found=True, error=False):
+        self.labels, self.found, self.error = labels, found, error
+        self.queries = []
+
+    def exsparql(self, query):
+        self.queries.append(query)
+        if "bif:contains" in query:
+            if self.error:
+                raise RuntimeError("Virtuoso ではありません")
+            return [{"s": {"type": "uri", "value": "http://ex.org/x"}}] if self.found else []
+        return [{"l": {"type": "literal", "value": v}} for v in self.labels]
+
+
+def test_probe_bif_contains():
+    sparql = ProbeSPARQL(["a", "パロディー写真"])
+    assert probe_bif_contains(sparql) == "bif"
+    # 短すぎるラベルは使わず、次のラベルで試す
+    assert 'bif:contains "\\"パロディー写真\\""' in sparql.queries[-1]
+    assert probe_bif_contains(ProbeSPARQL(["パロディー写真"], found=False)) == "contains"
+    assert probe_bif_contains(ProbeSPARQL(["パロディー写真"], error=True)) == "contains"
+    assert probe_bif_contains(ProbeSPARQL([])) == "contains"
+
+
+def test_text_search_method_setting_and_cache():
+    application = make_application({})
+    application.sparql_client = ProbeSPARQL(["パロディー写真"])
+    application.text_search = "contains"
+    application.text_search_cache = {}
+    assert application.text_search_method() == "contains"
+    assert application.sparql_client.queries == []   # 設定で決めたときは試さない
+    application.text_search = "auto"
+    assert application.text_search_method() == "bif"
+    count = len(application.sparql_client.queries)
+    assert application.text_search_method() == "bif"
+    assert len(application.sparql_client.queries) == count   # 判定は一度だけ
+
+
+def test_term_facet_bif_falls_back_to_contains():
+    class BifSPARQL(DummySPARQL):
+        def query(self, query, params=None):
+            self.calls.append((query, params or {}))
+            if "bif:contains" in query:
+                return []          # 語単位では見つからない
+            return [{"value": {"type": "uri", "value": TERM_B},
+                     "label": {"type": "literal", "value": "パロディー写真"},
+                     "count": {"type": "literal", "value": "4"}}]
+
+    sparql = BifSPARQL()
+    gadget = term_facet()
+    application = make_application({"term": gadget}, sparql)
+    application.text_search = "auto"
+    application.text_search_cache = {"rdfs:label": "bif"}
+    params = request_params(MultiDict([("f.term.search", "写真")]), path="/collection")
+    content = gadget.extract(None, application=application, params=params,
+                             collection=Collection.from_class(sparql, MOUNTAIN))
+    assert [c["label"] for c in content["candidates"]] == ["パロディー写真"]
+    searches = [q for q, _ in sparql.calls if "SELECT ?value" in q]
+    assert "bif:contains" in searches[0] and "CONTAINS(LCASE" in searches[1]
+
+    # text_search: bif と指定したときは CONTAINS で探し直さない
+    sparql.calls.clear()
+    application.text_search = "bif"
+    content = gadget.extract(None, application=application, params=params,
+                             collection=Collection.from_class(sparql, MOUNTAIN))
+    assert content["candidates"] == []
+    assert all("CONTAINS(LCASE" not in q for q, _ in sparql.calls)

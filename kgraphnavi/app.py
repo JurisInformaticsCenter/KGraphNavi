@@ -29,7 +29,7 @@ from flask import Flask, render_template
 from .render_utils import show_vertical_table, show_horizontal_table, show_facet
 from .render_utils import show_chart, show_network, pairs2adjacent, show_adjacentnetwork
 from .sparql import SPARQL, STANDARD_PREFIXES
-from .collection import Collection
+from .collection import Collection, bif_text_expression
 from .errors import ConfigError, GadgetError, ShowError, KGraphError
 from .terms import predicate_term, literal_term, language_tag, is_iri, iri_term
 from .facets import (
@@ -406,13 +406,21 @@ class Gadget:
             candidates = []
             too_many = True
         else:
-            candidates = collection.get_facets(
-                predicate,
-                label_predicate=self.extract_method.get("label_predicate", "rdfs:label"),
+            label_predicate = self.extract_method.get("label_predicate", "rdfs:label")
+            options = dict(
+                label_predicate=label_predicate,
                 lang=self.extract_method.get("lang"),
                 limit=self.extract_method.get("limit"),
-                search=search,
+                value_type=self.extract_method.get("value_type", "auto"),
             )
+            method = "contains"
+            if search and hasattr(application, "text_search_method"):
+                method = application.text_search_method(label_predicate)
+            candidates = collection.get_facets(predicate, search=search, search_method=method, **options)
+            # 全文索引は語単位の一致なので、見つからなければ部分一致（CONTAINS）でも探す
+            if (search and method == "bif" and not candidates
+                    and getattr(application, "text_search", "auto") == "auto"):
+                candidates = collection.get_facets(predicate, search=search, search_method="contains", **options)
         values, _ranges = facet_selection(params)
         selected = list(values.get(facet_name, []))
         legacy = params.get(facet_name)
@@ -697,6 +705,34 @@ def builtin_collection_gadget(label_predicate="rdfs:label", label_lang=None):
     )
 
 
+# ファセットの候補の検索の方法（設定 text_search）
+TEXT_SEARCH_MODES = ("auto", "bif", "contains")
+
+
+def probe_bif_contains(sparql_client, label_predicate="rdfs:label"):
+    """エンドポイントで bif:contains（Virtuoso の全文索引）が使えるかを試し、"bif" / "contains" を返す。
+
+    実際のラベルを1つ取り出し、それを bif:contains で探して見つかれば使えると判定する。
+    Virtuoso でないエンドポイントでは問い合わせがエラーになるので contains とする。
+    """
+    try:
+        predicate = predicate_term(label_predicate)
+        rows = sparql_client.exsparql(
+            f"SELECT ?l WHERE {{ ?s {predicate} ?l . FILTER(isLiteral(?l)) }} LIMIT 20"
+        )
+        for row in rows:
+            expression = bif_text_expression(row.get("l", {}).get("value", ""))
+            if not expression or len(expression) < 4:
+                continue
+            found = sparql_client.exsparql(
+                f"SELECT ?s WHERE {{ ?s {predicate} ?l . ?l bif:contains {literal_term(expression)} . }} LIMIT 1"
+            )
+            return "bif" if found else "contains"
+    except Exception as e:  # エラーなら bif:contains は使えない
+        logger.info("bif:contains は使えません: %s", e)
+    return "contains"
+
+
 # 設定の検証で使う、対応しているget/showの種類
 SUPPORTED_GET_TYPES = set(Gadget.EXTRACTORS)
 SUPPORTED_SHOW_TYPES = {"vtable", "htable", "facet"} | set(Gadget.SHOWERS)
@@ -705,7 +741,7 @@ RETRIEVE_FORM = '<form action="/search" method="GET"><div class="search_wrap"><i
 
 class Application:
     """Application"""
-    __slots__ = ("pages", "gadgetset", "title", "describe", "query_samples", "resource_samples", "collection_samples", "adjacent", "priority_list", "focus", "navi", "sparql_client", "data_dir", "max_rows", "prefixes", "class_page_cache")
+    __slots__ = ("pages", "gadgetset", "title", "describe", "query_samples", "resource_samples", "collection_samples", "adjacent", "priority_list", "focus", "navi", "sparql_client", "data_dir", "max_rows", "prefixes", "class_page_cache", "text_search", "text_search_cache")
     def __repr__(self):
         return f'Application={self.pages!r}, {self.gadgetset}'
 
@@ -727,6 +763,9 @@ class Application:
         self.prefixes = {}
         # RDFクラス → コレクションのページ名（上位クラスの問い合わせ結果を記憶する）
         self.class_page_cache = {}
+        # 候補の検索の方法（auto / bif / contains）と、auto で判定した結果（ラベルの述語ごと）
+        self.text_search = "auto"
+        self.text_search_cache = {}
 
     def resolve_gadget(self, spec):
         if m := re.match(r'(.*)\((.*)\)', spec):
@@ -738,6 +777,27 @@ class Application:
         # gadget定義を取得
         gadget = self.gadgetset.get(name)
         return name, path, gadget
+
+    def text_search_method(self, label_predicate="rdfs:label"):
+        """ファセットの候補の検索に使う方法 "bif" / "contains" を返す。
+
+        設定 text_search が auto（既定）のときは、SPARQL エンドポイントで Virtuoso の全文索引
+        （bif:contains）が使えるかを一度だけ試して決める。
+        """
+        mode = getattr(self, "text_search", "auto") or "auto"
+        if mode in ("bif", "contains"):
+            return mode
+        cache = getattr(self, "text_search_cache", None)
+        if cache is None:
+            cache = {}
+        if label_predicate not in cache:
+            cache[label_predicate] = probe_bif_contains(self.sparql_client, label_predicate)
+            logger.info(
+                "候補の検索（%s）: %s", label_predicate,
+                "全文索引 bif:contains を使います" if cache[label_predicate] == "bif"
+                else "bif:contains が使えないため CONTAINS を使います",
+            )
+        return cache[label_predicate]
 
     def make_gadget(self, gadget_name, uri, params=None, collection=None,):
         """Gadgetを実行してHTMLを作成する。"""
@@ -1370,6 +1430,7 @@ def setconfig(config, base_dir=None):
         "data_dir",
         "max_rows",
         "label_lang",
+        "text_search", # ファセットの候補の検索: auto（既定）/ bif / contains
     }
     PAGE_KEYS = {
         "def",
@@ -1401,6 +1462,7 @@ def setconfig(config, base_dir=None):
     data_dir = None
     max_rows = DEFAULT_MAX_ROWS
     label_lang = None
+    text_search = "auto"
     label_predicate = None
     prefixes = {}
     query_samples = []
@@ -1448,6 +1510,12 @@ def setconfig(config, base_dir=None):
                 data_dir = resolve_dir(config["data_dir"], base_dir)
             if "label_lang" in config:
                 label_lang = config["label_lang"]
+            if "text_search" in config:
+                text_search = str(config["text_search"]).strip().lower()
+                if text_search not in TEXT_SEARCH_MODES:
+                    raise ConfigError(
+                        f"text_searchは {' / '.join(TEXT_SEARCH_MODES)} のいずれかです: {config['text_search']!r}"
+                    )
             if "max_rows" in config:
                 try:
                     max_rows = int(config["max_rows"])
@@ -1532,6 +1600,7 @@ def setconfig(config, base_dir=None):
         "frontend_base_url": frontend_base_url,
         "data_dir": data_dir,
         "max_rows": max_rows,
+        "text_search": text_search,
     }
 
 
@@ -1620,6 +1689,7 @@ def build_application(
         data_dir,
     )
     application.max_rows = cfg["max_rows"]
+    application.text_search = cfg.get("text_search", "auto")
     application.prefixes = {**STANDARD_PREFIXES, **(cfg["prefixes"] or {})}
     return application
 

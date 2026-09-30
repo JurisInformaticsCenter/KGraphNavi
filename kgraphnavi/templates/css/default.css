@@ -621,3 +621,75 @@ form.facet {
   margin: 0;
   cursor: pointer;
 }
+
+/* 実行中の表示（templates/js/busy.js） */
+.kg-busy-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 12px 10px;
+  overflow: hidden;
+  background: #0369a1;
+  color: #fff;
+  font-size: 14px;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.25);
+}
+
+.kg-busy-bar::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: -30%;
+  width: 30%;
+  height: 3px;
+  background: #7dd3fc;
+  animation: kg-slide 1.2s linear infinite;
+}
+
+.kg-spinner {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  margin-right: 4px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  vertical-align: -0.15em;
+  animation: kg-spin 0.8s linear infinite;
+}
+
+body.kg-busy {
+  cursor: progress;
+}
+
+body.kg-busy form.facet,
+body.kg-busy .kg-tab-content {
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+
+.kg-busy-button {
+  pointer-events: none;
+}
+
+@keyframes kg-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes kg-slide {
+  from { left: -30%; }
+  to { left: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kg-spinner,
+  .kg-busy-bar::after {
+    animation: none;
+  }
+}

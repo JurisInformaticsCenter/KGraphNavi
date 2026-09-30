@@ -164,6 +164,13 @@ def test_setconfig_adds_builtin_collection_page():
     assert gadget.page_size == 50
 
 
+def test_setconfig_text_search():
+    assert setconfig([])["text_search"] == "auto"
+    assert setconfig([{"text_search": "BIF"}])["text_search"] == "bif"
+    with pytest.raises(ConfigError):
+        setconfig([{"text_search": "fulltext"}])
+
+
 @pytest.mark.parametrize("definition", [
     {"def": "page", "name": "_Mine", "type": "*", "gadget": ["x"]},
     {"def": "gadget", "name": "_mine", "get": {"type": "sparql", "src": "x"}, "show": {"type": "htable"}},

@@ -26,4 +26,4 @@ kgraphnavi = "kgraphnavi.app:main"
 packages = ["kgraphnavi"]
 
 [tool.setuptools.package-data]
-kgraphnavi = ["templates/*.html", "templates/*.ico", "templates/css/*.css"]
+kgraphnavi = ["templates/*.html", "templates/*.ico", "templates/css/*.css", "templates/js/*.js"]

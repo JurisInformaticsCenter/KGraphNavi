@@ -55,6 +55,23 @@ def _indent(text, spaces=4):
     return "\n".join(pad + line if line.strip() else line for line in text.splitlines())
 
 
+# bif:contains の検索式で特別な意味を持つ文字（語から取り除く）
+_BIF_SPECIAL = re.compile(r'[\\"\'*()&|!~^<>\[\]{}:;,.?+=/-]+')
+
+
+def bif_text_expression(text):
+    """検索語を Virtuoso の bif:contains の検索式にする。
+
+    空白で区切った語をそれぞれ "語" とし、AND でつなぐ（例: 写真 著作 → "写真" AND "著作"）。
+    検索式の記号は取り除く。語が残らなければ None。
+    """
+    words = [_BIF_SPECIAL.sub(" ", word).strip() for word in str(text or "").split()]
+    words = [w for part in words for w in part.split() if w]
+    if not words:
+        return None
+    return " AND ".join(f'"{word}"' for word in words)
+
+
 def numeric_expression(datatype=None, unit=None, var="?_v"):
     """範囲ファセットで値 var を数値にする SPARQL の式を返す。
 
@@ -330,11 +347,15 @@ class Collection:
             f"WHERE {{\n{_indent(self._pattern())}\n}}"
         )
 
-    def facet_query(self, predicate, *, label_predicate="rdfs:label", lang=None, limit=None, search=None):
+    def facet_query(self, predicate, *, label_predicate="rdfs:label", lang=None, limit=None,
+                    search=None, search_method="contains", value_type="auto"):
         """predicate の値ごとの件数を求めるSELECTを返す。
 
         search: 値のラベル（IRIでない値はその値自身）にこの語句を含む候補だけにする
                 （大文字小文字を区別しない）
+        search_method: "contains"（SPARQL の CONTAINS。どのストアでも使えるが、ラベルを全件走査する）
+                       "bif"（Virtuoso の全文索引 bif:contains。語単位の一致）
+        value_type: "iri" ならラベルだけ、"literal" なら値自身だけを bif:contains で探す
         """
         predicate = predicate_term(predicate)
         label_predicate = predicate_term(label_predicate)
@@ -342,7 +363,30 @@ class Collection:
         if lang:
             lang_filter = f"\n        FILTER(LANGMATCHES(LANG(?_label), {literal_term(language_tag(lang))}))"
         search_filter = ""
-        if search:
+        text_expression = bif_text_expression(search) if search and search_method == "bif" else None
+        if text_expression:
+            # 全文索引で先にラベルが一致する値を絞り、それからコレクションと突き合わせる
+            expression = literal_term(text_expression)
+            branches = []
+            if value_type != "literal":  # IRI の値はラベルで探す
+                branches.append(
+                    f"?value {label_predicate} ?_search_label .\n"
+                    f"?_search_label bif:contains {expression} ."
+                )
+            if value_type != "iri":  # 文字列の値はその値自身で探す
+                branches.append(
+                    f"?_search_uri {predicate} ?value .\n"
+                    f"?value bif:contains {expression} ."
+                )
+            pattern = "\nUNION\n".join("{\n" + _indent(b) + "\n}" for b in branches)
+            search_filter = (
+                "    {\n"
+                "        SELECT DISTINCT ?value WHERE {\n"
+                f"{_indent(_indent(_indent(pattern)))}\n"
+                "        }\n"
+                "    }\n"
+            )
+        elif search:
             needle = literal_term(str(search).strip().lower())
             search_filter = (
                 "    OPTIONAL {\n"
@@ -354,9 +398,10 @@ class Collection:
         query = (
             "SELECT ?value (SAMPLE(?_label) AS ?label) (COUNT(DISTINCT ?uri) AS ?count)\n"
             "WHERE {\n"
+            f"{search_filter if text_expression else ''}"
             f"{_indent(self.to_subquery('?uri'))}\n"
             f"    ?uri {predicate} ?value .\n"
-            f"{search_filter}"
+            f"{'' if text_expression else search_filter}"
             "    OPTIONAL {\n"
             f"        ?value {label_predicate} ?_label .{lang_filter}\n"
             "    }\n"
@@ -430,7 +475,8 @@ class Collection:
         self._count_cache = count
         return count
 
-    def get_facets(self, predicate, *, exclude=None, label_predicate="rdfs:label", lang=None, limit=None, search=None):
+    def get_facets(self, predicate, *, exclude=None, label_predicate="rdfs:label", lang=None, limit=None,
+                   search=None, search_method="contains", value_type="auto"):
         """Facet候補（値・ラベル・件数・値の種類）を件数の多い順に返す。
 
         exclude: 候補計算のときに外す条件の名前（通常は自分自身のファセット名）
@@ -438,7 +484,8 @@ class Collection:
         """
         collection = self.without(exclude) if exclude else self
         query = collection.facet_query(
-            predicate, label_predicate=label_predicate, lang=lang, limit=limit, search=search
+            predicate, label_predicate=label_predicate, lang=lang, limit=limit,
+            search=search, search_method=search_method, value_type=value_type,
         )
         results = collection._run(query)
         facets = []
