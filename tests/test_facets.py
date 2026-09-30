@@ -656,3 +656,115 @@ def test_collection_header_uses_labels_for_iri_values():
     label_queries = [q for q, _ in sparql.calls if "SAMPLE(?label)" in q]
     assert len(label_queries) == 1
     assert "民事訴訟" not in label_queries[0]
+
+
+# --------------------------------------------------
+# タームのファセット: いずれか／すべて、候補の検索、大きなコレクション
+# --------------------------------------------------
+
+TERM_A = "http://ds.rois.ac.jp/caselaw/resource/著作権"
+TERM_B = "http://ds.rois.ac.jp/caselaw/resource/パロディー写真"
+
+
+def term_facet(**extra):
+    config = dict(label="ターム", value_type="iri", match="selectable", search=True)
+    config.update(extra)
+    return facet_gadget("term", "dcterms:subject", **config)
+
+
+def test_request_params_facet_options_are_not_values():
+    params = request_params(MultiDict([
+        ("f.term", TERM_A), ("f.term.match", "all"), ("f.term.search", "写真"),
+    ]))
+    values, _ = facet_selection(params)
+    assert values == {"term": [TERM_A]}
+    from kgraphnavi.facets import facet_option
+    assert facet_option(params, "term", "match") == "all"
+    assert facet_option(params, "term", "search") == "写真"
+
+
+@pytest.mark.parametrize("match_param,expected_patterns", [
+    (None, 1),      # 既定は いずれか（OR）: 1つの条件
+    ("any", 1),
+    ("all", 2),     # すべて（AND）: 値ごとに条件
+])
+def test_term_facet_match(match_param, expected_patterns):
+    application = make_application({"term": term_facet()})
+    args = [("f.term", TERM_A), ("f.term", TERM_B)]
+    if match_param:
+        args.append(("f.term.match", match_param))
+    collection = application.apply_collection_filters(
+        Collection.from_class(None, MOUNTAIN), request_params(MultiDict(args))
+    )
+    assert len(collection.conditions) == expected_patterns
+    query = collection.get_query()
+    if expected_patterns == 2:
+        assert f"?uri dcterms:subject <{TERM_A}> ." in query
+        assert f"?uri dcterms:subject <{TERM_B}> ." in query
+    else:
+        assert f"IN (<{TERM_A}>, <{TERM_B}>)" in query
+
+
+def test_match_all_fixed_in_config_ignores_url():
+    application = make_application({"term": term_facet(match="all")})
+    params = request_params(MultiDict([("f.term", TERM_A), ("f.term", TERM_B), ("f.term.match", "any")]))
+    collection = application.apply_collection_filters(Collection.from_class(None, MOUNTAIN), params)
+    assert len(collection.conditions) == 2
+
+
+def test_facet_query_search():
+    query = Collection.from_class(None, MOUNTAIN).facet_query("dcterms:subject", search="写真\")")
+    assert 'CONTAINS(LCASE(STR(COALESCE(?_search_label, ?value))), "写真\\")")' in query
+
+
+def test_term_facet_search_and_too_many():
+    class TermSPARQL(DummySPARQL):
+        def query(self, query, params=None):
+            self.calls.append((query, params or {}))
+            if "COUNT(DISTINCT ?uri) AS ?count)\nWHERE" in query and "?value" not in query:
+                return [{"count": {"type": "literal", "value": "67000"}}]
+            return [{"value": {"type": "uri", "value": TERM_B},
+                     "label": {"type": "literal", "value": "パロディー写真"},
+                     "count": {"type": "literal", "value": "4"}}]
+
+    sparql = TermSPARQL()
+    gadget = term_facet(top_when_under=5000)
+    gadget.sparql_client = sparql
+    application = make_application({"term": gadget}, sparql)
+    collection = Collection.from_class(sparql, MOUNTAIN)
+
+    # 大きなコレクションで検索語がなければ、上位の候補は集計しない
+    params = request_params(MultiDict([("f.term", TERM_A)]), path="/collection")
+    content = gadget.extract(None, application=application, params=params, collection=collection)
+    assert content["too_many"] and content["candidates"] == []
+    assert not any("SELECT ?value" in q for q, _ in sparql.calls)
+    html = gadget.show(content)
+    assert "件数が多いため候補を表示していません" in html
+    # 選択中のタームは件数なしで表示し、チェック済み
+    assert f'value="{TERM_A}" checked' in html
+
+    # 検索語があれば、その語を含む候補を集計する
+    sparql.calls.clear()
+    params = request_params(MultiDict([("f.term", TERM_A), ("f.term.search", "写真")]), path="/collection")
+    content = gadget.extract(None, application=application, params=params, collection=collection)
+    assert [c["label"] for c in content["candidates"]] == ["パロディー写真"]
+    assert any('"写真"' in q for q, _ in sparql.calls)
+    html = gadget.show(content)
+    assert 'name="f.term.search" value="写真"' in html
+    assert "検索をやめる" in html
+    # 選択中の値が先頭
+    assert html.index(TERM_A) < html.index(TERM_B)
+    # いずれか／すべての切り替え（既定はいずれか）
+    assert 'name="f.term.match" value="any" checked' in html
+    # 自分のオプションは hidden にしない（フォームの入力欄と重複しない）
+    assert '<input type="hidden" name="f.term.search"' not in html
+
+
+def test_conditions_show_all_mode():
+    params = request_params(MultiDict([
+        ("f.term", TERM_A), ("f.term", TERM_B), ("f.term.match", "all"),
+    ]), path="/collection")
+    definition = {"label": "ターム", "match": "selectable"}
+    assert "ターム（すべて）:" in render_conditions(params, {"term": definition})
+    params = request_params(MultiDict([("f.term", TERM_A), ("f.term", TERM_B)]), path="/collection")
+    assert "ターム:" in render_conditions(params, {"term": definition})

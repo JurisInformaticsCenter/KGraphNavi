@@ -34,6 +34,8 @@ from .errors import ConfigError, GadgetError, ShowError, KGraphError
 from .terms import predicate_term, literal_term, language_tag, is_iri, iri_term
 from .facets import (
     facet_selection,
+    facet_option,
+    match_mode,
     page_number,
     render_value_facet,
     render_range_facet,
@@ -396,12 +398,21 @@ class Gadget:
         )
         if self.extract_method.get("kind") == "range":
             return self._extract_range_facet(facet_name, predicate, collection, params)
-        candidates = collection.get_facets(
-            predicate,
-            label_predicate=self.extract_method.get("label_predicate", "rdfs:label"),
-            lang=self.extract_method.get("lang"),
-            limit=self.extract_method.get("limit"),
-        )
+        search = facet_option(params, facet_name, "search") if self.extract_method.get("search") else None
+        # 要素が多いコレクションでは、上位の候補の集計は重いので行わず、検索で探してもらう
+        top_limit = self.extract_method.get("top_when_under")
+        too_many = False
+        if top_limit and not search and collection.count() > int(top_limit):
+            candidates = []
+            too_many = True
+        else:
+            candidates = collection.get_facets(
+                predicate,
+                label_predicate=self.extract_method.get("label_predicate", "rdfs:label"),
+                lang=self.extract_method.get("lang"),
+                limit=self.extract_method.get("limit"),
+                search=search,
+            )
         values, _ranges = facet_selection(params)
         selected = list(values.get(facet_name, []))
         legacy = params.get(facet_name)
@@ -413,6 +424,12 @@ class Gadget:
             "candidates": candidates,
             "selected": selected,
             "params": params,
+            "match": match_mode(self.extract_method, params, facet_name),
+            "selectable_match": self.extract_method.get("match") == "selectable",
+            "searchable": bool(self.extract_method.get("search")),
+            "search": search or "",
+            "too_many": too_many,
+            "top_limit": top_limit,
         }
 
     def _extract_range_facet(self, facet_name, predicate, collection, params):
@@ -768,12 +785,20 @@ class Application:
         action = ""
         config = getattr(gadget, "collection_config", None)
         if config and content and collection is None:
-            # 一覧をコレクションとして表示するボタン（このガジェットの SPARQL でコレクションを定義）
-            query = {"from": name}
-            if uri:
-                query["uri"] = uri
-            if config.get("class"):
-                query["class"] = config["class"]
+            if config.get("facet") and uri:
+                # 表示中のリソースを値とするファセットで絞り込んだコレクション
+                # （例: タームのページ → そのタームを含む判決文書。他のタームを加えられる）
+                query = {}
+                if config.get("class"):
+                    query["class"] = config["class"]
+                query[f"f.{config['facet']}"] = uri
+            else:
+                # 一覧をコレクションとして表示するボタン（このガジェットの SPARQL でコレクションを定義）
+                query = {"from": name}
+                if uri:
+                    query["uri"] = uri
+                if config.get("class"):
+                    query["class"] = config["class"]
             action = (
                 f'<a class="gadget-action" href="/collection?{html_escape(urlencode(query))}">'
                 f'{html_escape(config.get("label") or "コレクションとして表示")}</a>'
@@ -1151,12 +1176,23 @@ class Application:
             facet = self._facet_for(name)
             if facet is None or facet.get("kind", "value") != "value":
                 continue
-            result = result.filter(
-                facet["predicate"],
-                selected,
-                value_type=facet.get("value_type", "auto"),
-                name=name,
-            )
+            if match_mode(facet, params, name) == "all":
+                # すべての値を持つ（AND）: 値ごとに条件を重ねる
+                for value in selected:
+                    result = result.filter(
+                        facet["predicate"],
+                        [value],
+                        value_type=facet.get("value_type", "auto"),
+                        name=name,
+                    )
+            else:
+                # いずれかの値を持つ（OR）
+                result = result.filter(
+                    facet["predicate"],
+                    selected,
+                    value_type=facet.get("value_type", "auto"),
+                    name=name,
+                )
             applied.add(name)
         for name, bounds in ranges.items():
             if name in excluded or name in applied:
@@ -1449,10 +1485,13 @@ def setconfig(config, base_dir=None):
             if gadget_collection is not None:
                 if isinstance(gadget_collection, str):
                     gadget_collection = {"var": gadget_collection}
-                if not isinstance(gadget_collection, dict) or not re.fullmatch(
-                    r"[A-Za-z_][A-Za-z0-9_]*", str(gadget_collection.get("var", ""))
-                ):
-                    raise ConfigError(f"gadget({name})のcollectionには var（変数名）が必要です")
+                if not isinstance(gadget_collection, dict):
+                    raise ConfigError(f"gadget({name})のcollectionは辞書で指定してください")
+                if gadget_collection.get("facet"):
+                    if not re.fullmatch(r"[\w.-]+", str(gadget_collection["facet"])):
+                        raise ConfigError(f"gadget({name})のcollection.facetが不正です")
+                elif not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", str(gadget_collection.get("var", ""))):
+                    raise ConfigError(f"gadget({name})のcollectionには var（変数名）か facet が必要です")
                 if config["get"].get("type") != "sparql":
                     raise ConfigError(f"gadget({name})のcollectionは get.type: sparql のガジェットでだけ使えます")
             gadgetset[name] = Gadget(

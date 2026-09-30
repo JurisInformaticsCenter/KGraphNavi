@@ -577,3 +577,47 @@ form.facet {
 .gadget-action:hover {
   background: #e0f2fe;
 }
+
+/* ファセットの候補の検索、値の組み合わせ（いずれか／すべて） */
+.facet-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 14px;
+}
+
+.facet-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.facet-search-button {
+  padding: 3px 10px;
+  border: 1px solid #0284c7;
+  border-radius: 4px;
+  background: #fff;
+  color: #0369a1;
+  cursor: pointer;
+}
+
+.facet-match {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+  font-size: 13px;
+  color: #334155;
+}
+
+.facet-match label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  cursor: pointer;
+}

@@ -330,18 +330,33 @@ class Collection:
             f"WHERE {{\n{_indent(self._pattern())}\n}}"
         )
 
-    def facet_query(self, predicate, *, label_predicate="rdfs:label", lang=None, limit=None):
-        """predicate の値ごとの件数を求めるSELECTを返す。"""
+    def facet_query(self, predicate, *, label_predicate="rdfs:label", lang=None, limit=None, search=None):
+        """predicate の値ごとの件数を求めるSELECTを返す。
+
+        search: 値のラベル（IRIでない値はその値自身）にこの語句を含む候補だけにする
+                （大文字小文字を区別しない）
+        """
         predicate = predicate_term(predicate)
         label_predicate = predicate_term(label_predicate)
         lang_filter = ""
         if lang:
             lang_filter = f"\n        FILTER(LANGMATCHES(LANG(?_label), {literal_term(language_tag(lang))}))"
+        search_filter = ""
+        if search:
+            needle = literal_term(str(search).strip().lower())
+            search_filter = (
+                "    OPTIONAL {\n"
+                f"        ?value {label_predicate} ?_search_label .\n"
+                "    }\n"
+                "    FILTER(CONTAINS(LCASE(STR(COALESCE(?_search_label, ?value))), "
+                f"{needle}))\n"
+            )
         query = (
             "SELECT ?value (SAMPLE(?_label) AS ?label) (COUNT(DISTINCT ?uri) AS ?count)\n"
             "WHERE {\n"
             f"{_indent(self.to_subquery('?uri'))}\n"
             f"    ?uri {predicate} ?value .\n"
+            f"{search_filter}"
             "    OPTIONAL {\n"
             f"        ?value {label_predicate} ?_label .{lang_filter}\n"
             "    }\n"
@@ -415,14 +430,15 @@ class Collection:
         self._count_cache = count
         return count
 
-    def get_facets(self, predicate, *, exclude=None, label_predicate="rdfs:label", lang=None, limit=None):
+    def get_facets(self, predicate, *, exclude=None, label_predicate="rdfs:label", lang=None, limit=None, search=None):
         """Facet候補（値・ラベル・件数・値の種類）を件数の多い順に返す。
 
         exclude: 候補計算のときに外す条件の名前（通常は自分自身のファセット名）
+        search:  ラベルにこの語句を含む候補だけにする
         """
         collection = self.without(exclude) if exclude else self
         query = collection.facet_query(
-            predicate, label_predicate=label_predicate, lang=lang, limit=limit
+            predicate, label_predicate=label_predicate, lang=lang, limit=limit, search=search
         )
         results = collection._run(query)
         facets = []

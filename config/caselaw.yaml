@@ -461,11 +461,11 @@
               width: 200
 -   def: gadget
     name: CaseLawContainingThisTerm
+    # このタームで絞り込んだ判決文書のコレクションへ（他のタームを加えて OR / AND で組み合わせられる）
     collection:
-        title: このタームを含む判決文書
-        var: doc
         class: caselawo:CaseLawDocument
-        label: 判決文書をコレクションとして表示
+        facet: term
+        label: このタームの判決文書をコレクションとして表示
     get:
         type: sparql
         src: |
@@ -864,6 +864,7 @@
     type: collection
     class: caselawo:CaseLawDocument
     sidebar:
+        - facet_term
         - facet_suit_type
         - facet_field
         - facet_right_type
@@ -1070,6 +1071,21 @@
         name: trial_court
         label: 裁判所
         predicate: caselawp:court
+        limit: 30
+    show:
+        type: facet
+# ターム（判決文書の dcterms:subject）。既定は「いずれかを含む」（OR）
+-   def: gadget
+    name: facet_term
+    get:
+        type: facet
+        name: term
+        label: ターム
+        predicate: dcterms:subject
+        value_type: iri
+        match: selectable      # 画面で「いずれかを含む／すべて含む」を切り替える
+        search: true           # 候補をラベルで検索する
+        top_when_under: 5000   # 要素がこれより多いときは上位の候補を出さず、検索で探す
         limit: 30
     show:
         type: facet

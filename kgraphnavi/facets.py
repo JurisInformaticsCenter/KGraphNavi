@@ -12,6 +12,8 @@
 ##      f.<name>=値            値の選択。同じ名前を繰り返すと OR
 ##      f.<name>.min=下限      範囲の下限
 ##      f.<name>.max=上限      範囲の上限
+##      f.<name>.match=all     値の組み合わせ（any: いずれか〔既定〕、all: すべて）
+##      f.<name>.search=語     候補の検索（絞り込みの条件にはならない）
 ##      page=2                 ページ送り（1始まり）
 ##      tab=1                  タブ（0始まり）
 ##
@@ -32,6 +34,8 @@ FACETS_PARAM = "_facets"
 ARGS_PARAM = "_args"
 PATH_PARAM = "_path"
 FACET_PREFIX = "f."
+# f.<name>.<option> のオプション（絞り込みの値ではないもの）
+FACET_OPTIONS = (".match", ".search")
 PAGE_PARAM = "page"
 TAB_PARAM = "tab"
 
@@ -45,6 +49,7 @@ def request_params(args, path=""):
     params = {}
     values = {}
     ranges = {}
+    options = {}
     raw = []
     for key in args.keys():
         items = [value for value in args.getlist(key)]
@@ -56,13 +61,17 @@ def request_params(args, path=""):
                 name, bound = rest.rsplit(".", 1)
                 if name and non_empty:
                     ranges.setdefault(name, {})[bound] = non_empty[0].strip()
+            elif rest.endswith(FACET_OPTIONS):
+                name, option = rest.rsplit(".", 1)
+                if name and non_empty:
+                    options.setdefault(name, {})[option] = non_empty[0].strip()
             elif rest and non_empty:
                 # 重複を除き、順序は保つ
                 values[rest] = list(dict.fromkeys(value.strip() for value in non_empty))
             continue
         if non_empty:
             params[key] = non_empty[0]
-    params[FACETS_PARAM] = {"values": values, "ranges": ranges}
+    params[FACETS_PARAM] = {"values": values, "ranges": ranges, "options": options}
     params[ARGS_PARAM] = raw
     params[PATH_PARAM] = path
     return params
@@ -72,6 +81,20 @@ def facet_selection(params):
     """params からファセットの選択状態を取り出す。"""
     selection = (params or {}).get(FACETS_PARAM) or {}
     return selection.get("values", {}), selection.get("ranges", {})
+
+
+def facet_option(params, name, option, default=None):
+    """ファセットのオプション（f.<name>.match / .search）の値"""
+    selection = (params or {}).get(FACETS_PARAM) or {}
+    return (selection.get("options", {}).get(name) or {}).get(option, default)
+
+
+def match_mode(definition, params, name):
+    """値の組み合わせ方（any / all）。設定の match が selectable なら URL の指定に従う。"""
+    match = (definition or {}).get("match", "any")
+    if match == "selectable":
+        return "all" if facet_option(params, name, "match") == "all" else "any"
+    return "all" if match == "all" else "any"
 
 
 def page_number(params):
@@ -157,46 +180,88 @@ def render_value_facet(content, height=None):
         "candidates": [{"value", "label", "count", "type"}, ...],
         "selected": [値, ...],
         "params": Gadget に渡された params,
+        "match": "any" | "all", "selectable_match": 組み合わせを画面で切り替えるか,
+        "searchable": 候補の検索欄を出すか, "search": 検索語,
+        "too_many": 要素が多いため上位の候補を出していないか,
     }
     """
     name = content["name"]
     field = FACET_PREFIX + name
+    match_field = f"{field}.match"
+    search_field = f"{field}.search"
     params = content.get("params") or {}
     selected = list(content.get("selected") or [])
     candidates = list(content.get("candidates") or [])
-    # 選択中の値は件数 0 でも候補に残す
-    shown = {candidate["value"] for candidate in candidates}
-    for value in selected:
-        if value not in shown:
-            candidates.append({"value": value, "label": value_label(value), "count": 0})
+    by_value = {str(candidate["value"]): candidate for candidate in candidates}
+    # 選択中の値を先頭に（候補になければ件数なしで）、その後に他の候補
+    ordered = [by_value.get(value) or {"value": value, "count": None} for value in selected]
+    ordered += [c for c in candidates if str(c["value"]) not in selected]
     style = f' style="max-height:{int(height)}px"' if height else ""
     items = []
-    for candidate in candidates:
+    for candidate in ordered:
         value = str(candidate["value"])
         label = candidate.get("label") or value
         if label == value:
             label = value_label(value)
         checked = " checked" if value in selected else ""
+        count = candidate.get("count")
+        count_text = f"{int(count):,}" if count is not None else ""
         items.append(
             '<li><label class="facet-item">'
             f'<input type="checkbox" name="{escape(field)}" value="{escape(value)}"{checked}>'
             f'<span class="facet-label" title="{escape(value)}">{escape(str(label))}</span>'
-            f'<span class="facet-count">{int(candidate.get("count", 0)):,}</span>'
+            f'<span class="facet-count">{count_text}</span>'
             '</label></li>'
         )
-    if not items:
+    search = content.get("search") or ""
+    if content.get("too_many") and not search:
+        items.append(
+            '<li class="facet-empty">件数が多いため候補を表示していません。'
+            '下の検索欄で探してください。</li>'
+        )
+    elif search and not candidates:
+        items.append(f'<li class="facet-empty">「{escape(search)}」を含む候補はありません</li>')
+    elif not items:
         items.append('<li class="facet-empty">候補がありません</li>')
+    search_box = ""
+    if content.get("searchable"):
+        clear_search = ""
+        if search:
+            clear_search = (
+                f'<a class="facet-clear" href="{escape(make_url(params, drop={search_field}))}">'
+                "検索をやめる</a>"
+            )
+        search_box = (
+            '<div class="facet-search">'
+            f'<input type="search" name="{escape(search_field)}" value="{escape(search)}" '
+            f'placeholder="{escape(content.get("label") or name)}を検索" aria-label="候補を検索">'
+            '<button type="submit" class="facet-search-button">検索</button>'
+            f"{clear_search}</div>\n"
+        )
+    match_box = ""
+    if content.get("selectable_match"):
+        match = content.get("match", "any")
+        match_box = (
+            '<div class="facet-match">'
+            f'<label><input type="radio" name="{escape(match_field)}" value="any"'
+            f'{" checked" if match != "all" else ""}>いずれかを含む</label>'
+            f'<label><input type="radio" name="{escape(match_field)}" value="all"'
+            f'{" checked" if match == "all" else ""}>すべて含む</label>'
+            "</div>\n"
+        )
     clear = ""
     if selected:
         clear = (
-            f'<a class="facet-clear" href="{escape(make_url(params, drop={field}))}">'
+            f'<a class="facet-clear" href="{escape(make_url(params, drop={field, match_field}))}">'
             'クリア</a>'
         )
     return (
         f'<form class="facet" method="GET" action="{escape(params.get(PATH_PARAM) or "")}" '
         f'data-facet-name="{escape(name)}">\n'
-        f'{hidden_inputs(params, exclude_keys={field})}\n'
+        f'{hidden_inputs(params, exclude_keys={field, match_field, search_field})}\n'
+        f"{search_box}"
         f'<ul class="facet-items"{style}>\n' + "\n".join(items) + "\n</ul>\n"
+        f"{match_box}"
         '<div class="facet-actions">'
         '<button type="submit" class="facet-apply">適用</button>'
         f'{clear}</div>\n'
@@ -223,6 +288,8 @@ def render_conditions(params, definitions, count=None, labels=None):
     for name, selected in values.items():
         field = FACET_PREFIX + name
         label = facet_label(definitions.get(name), name)
+        if len(selected) > 1 and match_mode(definitions.get(name), params, name) == "all":
+            label += "（すべて）"
         for value in selected:
             url = make_url(params, drop_items={(field, value)})
             chips.append(

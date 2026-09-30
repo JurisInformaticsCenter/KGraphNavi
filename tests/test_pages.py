@@ -397,3 +397,35 @@ def test_gadget_collection_config_validation():
     with pytest.raises(ConfigError):
         setconfig([{"def": "gadget", "name": "g", "collection": "doc",
                     "get": {"type": "list", "src": "x", "header": "a"}, "show": {"type": "htable"}}])
+
+
+def test_gadget_collection_button_with_facet(tmp_path, monkeypatch):
+    from kgraphnavi import sparql as sparql_module
+
+    def fake_exsparql(self, query):
+        if "?target where" in query:
+            return [{"target": {"type": "uri", "value": "http://example.org/Term"}}]
+        return [{"doc": {"type": "uri", "value": "http://example.org/D1"}}]
+
+    monkeypatch.setattr(sparql_module.SPARQL, "exsparql", fake_exsparql)
+    config = tmp_path / "test.yaml"
+    config.write_text("""
+- def: page
+  name: Term
+  type: http://example.org/Term
+  gadget: [Docs]
+- def: gadget
+  name: Docs
+  collection:
+    class: ex:Document
+    facet: term
+    label: このタームの文書
+  get:
+    type: sparql
+    src: "select ?doc where { ?doc ex:subject $uri }"
+  show:
+    type: htable
+""", encoding="utf-8")
+    client = create_app(build_application(str(config), endpoint="http://example.org/sparql")).test_client()
+    html = client.get("/resource?uri=http://example.org/T1").get_data(as_text=True)
+    assert "/collection?class=ex%3ADocument&amp;f.term=http%3A%2F%2Fexample.org%2FT1" in html
