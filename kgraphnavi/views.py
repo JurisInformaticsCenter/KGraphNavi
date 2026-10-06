@@ -223,6 +223,10 @@ def init_app(app):
     @app.route("/data/<path:filename>")
     def getfile(filename: str):
         application = current_app.extensions["application"]
+        # /data/<名前>/<path>: 設定の data_dirs にその名前があれば、そのフォルダから配信する
+        head, sep, rest = filename.partition("/")
+        if sep and head in getattr(application, "data_dirs", {}):
+            return send_from_directory(application.data_dirs[head], rest)
         if application.data_dir is None:
             return (
                 error(

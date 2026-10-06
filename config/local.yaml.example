@@ -12,3 +12,8 @@
 # コマンドラインの --data-dir、環境変数 KGRAPHNAVI_DATA_DIR が優先
 # 判例データ（caselaw.yaml）では、<年>/<ID>_hanrei.html を置いたフォルダを指定する
 # - data_dir: ~/caselaw/html
+
+# /data/<名前>/<path> で配信する別のフォルダ（data_dir とは別に、名前ごとに置く）。caselaw.yaml の値を上書きする
+# 中労委の判例のHTMLは /data/churoi/<ID>.html
+# - data_dirs:
+#     churoi: ~/nii/churoi/data/lhtml

@@ -2,7 +2,9 @@
 -   describe: 日本の判例に関するデータ
 -   rdfstore: virtuoso
 -   label: rdfs:label
--   text_search: auto   # 候補の検索: auto（bif:contains が使えれば使う）/ bif / contains
+-   text_search: auto
+-   data_dirs:          # /data/<名前>/<path> で配信する別のフォルダ（相対パスはこの設定ファイルのフォルダ基準。local.yaml で上書きできる）
+        churoi: ../../churoi/data/lhtml    # 中労委の判例のHTML（/data/churoi/h00030.html）   # 候補の検索: auto（bif:contains が使えれば使う）/ bif / contains
 -   prefixes:
         caselawo: "http://ds.rois.ac.jp/caselaw/ontology/"
         caselawp: "http://ds.rois.ac.jp/caselaw/property/"
@@ -13,11 +15,15 @@
         lawp: "http://lod4all.net/law/property/"
         prism: "http://prismstandard.org/namespaces/basic/2.0/"
         time: "http://www.w3.org/2006/time#"
+        churoio: "http://ds.rois.ac.jp/churoi/ontology/"
+        churoip: "http://ds.rois.ac.jp/churoi/property/"
 -   sample:
         search:
             - 宮川美津子
         resource:
             - http://ds.rois.ac.jp/caselaw/resource/D020518,休職処分取消事件
+            - http://ds.rois.ac.jp/churoi/resource/Dh10922,大浜資材（中労委の判例。類似判例・顛末）
+            - http://ds.rois.ac.jp/churoi/resource/K2620,反組合的言動（中労委の判示事項）
             - http://ds.rois.ac.jp/caselaw/resource/C昭和62あ1351,ロッキード事件
             - http://ds.rois.ac.jp/caselaw/resource/尾島明,尾島明（裁判官）
             - http://ds.rois.ac.jp/caselaw/resource/平木正洋,平木正洋（裁判官）
@@ -27,8 +33,10 @@
             - http://ds.rois.ac.jp/caselaw/resource/CaseCategory_配チ,配偶者暴力に関する保護命令事件
             - http://ds.rois.ac.jp/caselaw/ontology/Case,事件（クラス）
             - http://ds.rois.ac.jp/caselaw/ontology/CaseLawDocument,判決文書（クラス）
+            - http://ds.rois.ac.jp/caselaw/resource/Source_churoi,中労委 命令・裁判例データベース（出典）
         collection:
             - http://ds.rois.ac.jp/caselaw/ontology/CaseLawDocument,判決文書
+            - ChuroiCaseLaw,中労委の判例（判決文書）
             - http://ds.rois.ac.jp/caselaw/ontology/Case,事件
 -   priority:
         - http://ds.rois.ac.jp/caselaw/ontology/Person
@@ -48,6 +56,8 @@
         - Party
         - Term
         - Legislation
+        - Proceeding
+        - SimilarCaseLaw
 -   def: page
     name: Judgment
     type: http://ds.rois.ac.jp/caselaw/ontology/Judgment
@@ -58,6 +68,7 @@
         - Term
         - Legislation
         - Punishment
+        - SimilarCaseLaw
 -   def: page
     name: CaseLawDocument
     type: http://ds.rois.ac.jp/caselaw/ontology/CaseLawDocument
@@ -69,6 +80,7 @@
         - Legislation
         - Patent
         - DocInfo
+        - SimilarCaseLaw
 -   def: page
     name: Person
     type: http://ds.rois.ac.jp/caselaw/ontology/Person
@@ -118,6 +130,26 @@
         - CaseCategoryFacetCourt
         - CaseCategoryFacetResult
         - Out
+# 中労委の判例（~/nii/churoi。2026-10-05）
+-   def: page
+    name: HanjiTopic
+    type: http://ds.rois.ac.jp/churoi/ontology/判示事項
+    gadget:
+        - Profile
+        - CaseLawWithThisTopic
+-   def: page
+    name: DataSource
+    # 出典（判例文書の取得元のサイト。caselawo:DataSource）
+    type: http://ds.rois.ac.jp/caselaw/ontology/DataSource
+    gadget:
+        - Profile
+        - CaseLawFromThisSource
+-   def: page
+    name: LaborCommissionOrder
+    type: http://ds.rois.ac.jp/churoi/ontology/Order
+    gadget:
+        - OrderInfo
+        - TrialOfThisOrder
         - In
 -   def: page
     name: CaseClass
@@ -167,7 +199,7 @@
     get:
         type: sparql
         src: |
-            select ?caseno ?casename ?casecategory ?casecategorylabel ?holding ?headnote ?court ?judgmentdate ?result ?field ?pdf ?id ?year ?npages where {
+            select ?caseno ?casename ?casecategory ?casecategorylabel ?holding ?headnote ?court ?judgmentdate ?result ?field ?source ?sourcelabel ?pdf ?html ?id ?year ?npages where {
             graph <http://ds.rois.ac.jp/caselaw/> {
                 $uri caselawp:id ?id .
                 ?trialid a caselawo:Trial; caselawp:id ?id .
@@ -185,6 +217,17 @@
                 OPTIONAL {?trialid caselawp:分野 ?field}
                 OPTIONAL {?docid foaf:primaryTopic ?pdf}
                 OPTIONAL {?docid dcterms:extent ?npages}
+                OPTIONAL {?docid dcterms:source ?source . OPTIONAL {?source rdfs:label ?sourcelabel}}
+                # HTML文書（/data/…）。中労委は /data/churoi/<ID>.html（設定の data_dirs）、それ以外は /data/<年>/<ID>_hanrei.html。PDFの無い文書には無い
+                OPTIONAL {
+                    ?docid foaf:primaryTopic ?pdf2 ;
+                           caselawp:id ?id2 ;
+                           caselawp:year ?year2 .
+                    OPTIONAL {?docid dcterms:source ?source2}
+                    BIND(IF(COALESCE(?source2 = <http://ds.rois.ac.jp/caselaw/resource/Source_churoi>, false),
+                            CONCAT("/data/churoi/", STR(?id2), ".html"),
+                            CONCAT("/data/", STR(?year2), "/", STR(?id2), "_hanrei.html")) AS ?html)
+                }
             }}
     show: 
         type: vtable
@@ -220,6 +263,9 @@
             - id: field
               label: 分野
               display: localname
+            - id: sourcelabel
+              label: 出典
+              link: source
             - id: id
               label: ID
             - id: pdf
@@ -227,11 +273,10 @@
               type: directlink
             - id: npages
               label: PDFページ数
-            - id: year
+            - id: html
               label: HTML文書
               type: directlink
               string: "HTML文書"
-              href: "/data/?year/?{id}_hanrei.html"
 -   def: gadget
     name: DocInfo
     get:
@@ -549,6 +594,146 @@
               link: doc
               width: 200
 -   def: gadget
+    name: SimilarCaseLaw
+    # 類似判例（src/embed.py --task ttl の similar.ttl。中労委と hanrei）。裁判・判決・判決文書のページから caselawp:id でたどる
+    # 共通点: 中労委は共通の判示事項、hanreiは共通の参照判例(caselawp:sharedCitedCaseLaw)と参照法令の条(caselawp:sharedRefLaw)
+    collection:
+        title: 類似判例
+        var: doc
+        class: caselawo:CaseLawDocument
+        label: 類似判例をコレクションとして表示
+    get:
+        type: sparql
+        src: |
+            select ?rank ?doc ?label (group_concat(distinct ?tl; separator=" / ") as ?shared) where {
+            graph <http://ds.rois.ac.jp/caselaw/> {
+                $uri caselawp:id ?id .
+                ?self a caselawo:CaseLawDocument ;
+                      caselawp:id ?id ;
+                      caselawp:similar ?s .
+                ?s caselawp:similarDocument ?doc ;
+                   caselawp:rank ?rank .
+                ?doc rdfs:label ?label .
+                OPTIONAL {
+                    ?s churoip:共通の判示事項|caselawp:sharedCitedCaseLaw|caselawp:sharedRefLaw ?t .
+                    ?t rdfs:label ?tl .
+                }
+            }} group by ?rank ?doc ?label order by ?rank
+    show:
+        type: htable
+        columns:
+            - id: rank
+              label: 順位
+              width: 40
+            - id: label
+              label: 類似判例（同じ紛争の判例を除く）
+              link: doc
+              width: 300
+            - id: shared
+              label: 共通の判示事項・参照判例・参照法令
+              width: 200
+-   def: gadget
+    name: Proceeding
+    # 顛末（同じ紛争の命令・判決）。中労委の判例だけ
+    get:
+        type: sparql
+        src: |
+            select ?p ?label ?date ?kind where {
+            graph <http://ds.rois.ac.jp/caselaw/> {
+                $uri churoip:proceeding ?p .
+                ?p rdfs:label ?label .
+                OPTIONAL {?p churoip:orderdate ?date}
+                OPTIONAL {?p churoip:区分 ?kind}
+                OPTIONAL {?p caselawp:decision/caselawp:judgmentdate ?date}
+            }} order by ?date
+    show:
+        type: htable
+        columns:
+            - id: date
+              label: 年月日
+              width: 90
+            - id: label
+              label: 顛末（同じ紛争の命令・判決）
+              link: p
+              width: 300
+            - id: kind
+              label: 命令区分
+              width: 150
+-   def: gadget
+    name: CaseLawWithThisTopic
+    # この判示事項（中労委の分類）の判決文書
+    # 中労委の判例のコレクション（ChuroiCaseLaw）を、この判示事項で絞り込んで表示する（他の判示事項や裁判所などと組み合わせられる）
+    collection:
+        facet: churoi_topic
+        view: ChuroiCaseLaw
+        label: 中労委の判例のコレクションで表示
+    get:
+        type: sparql
+        src: |
+            select distinct ?doc ?label ?date where {
+            graph <http://ds.rois.ac.jp/caselaw/> {
+                ?j churoip:判示事項 $uri ;
+                   caselawp:id ?id .
+                OPTIONAL {?j caselawp:judgmentdate ?date}
+                ?doc a caselawo:CaseLawDocument ;
+                     caselawp:id ?id ;
+                     rdfs:label ?label .
+            }} order by ?date
+    show:
+        type: htable
+        columns:
+            - id: date
+              label: 判決年月日
+              width: 90
+            - id: label
+              label: この判示事項の判例
+              link: doc
+              width: 300
+-   def: gadget
+    name: OrderInfo
+    # 労働委員会の命令（中労委の判例の顛末情報から）
+    get:
+        type: sparql
+        src: |
+            select ?label ?date ?kind ?page where {
+            graph <http://ds.rois.ac.jp/caselaw/> {
+                $uri rdfs:label ?label .
+                OPTIONAL {$uri churoip:orderdate ?date}
+                OPTIONAL {$uri churoip:区分 ?kind}
+                OPTIONAL {$uri foaf:page ?page}
+            }}
+    show:
+        type: vtable
+        columns:
+            - id: label
+              label: 事件番号
+              width: 100
+            - id: date
+              label: 命令年月日
+            - id: kind
+              label: 命令区分
+            - id: page
+              label: 中労委のページ
+              type: directlink
+-   def: gadget
+    name: TrialOfThisOrder
+    # この命令を顛末に含む裁判
+    get:
+        type: sparql
+        src: |
+            select ?t ?label where {
+            graph <http://ds.rois.ac.jp/caselaw/> {
+                ?t churoip:proceeding $uri ;
+                   rdfs:label ?label .
+            }}
+    show:
+        type: htable
+        columns:
+            - id: label
+              label: この命令についての判決
+              link: t
+              width: 300
+-   def: gadget
     name: Judge
     get:
         type: sparql
@@ -865,6 +1050,7 @@
     type: collection
     class: caselawo:CaseLawDocument
     sidebar:
+        - facet_source
         - facet_term
         - facet_suit_type
         - facet_field
@@ -1090,3 +1276,157 @@
         limit: 30
     show:
         type: facet
+# ---------------------------------------------------------------- 中労委の判例のコレクション（2026.10.6）
+#   /collection?view=ChuroiCaseLaw。要素は中労委の判決文書（出典 dcterms:source が caselaw:Source_churoi のもの）
+#   判決文書には裁判所・判示事項などが無いので、ファセットは caselawp:id で同じ判例の裁判（T）・判決（J）をたどる
+-   def: page
+    name: ChuroiCaseLaw
+    type: collection
+    query: |
+        SELECT ?uri
+        WHERE {
+            ?uri a caselawo:CaseLawDocument ;
+                 dcterms:source caselaw:Source_churoi .
+        }
+    sidebar:
+        - facet_churoi_topic
+        - facet_churoi_court
+        - facet_churoi_casecategory
+        - facet_churoi_disposition
+        - facet_year
+    tabs:
+        - label: 一覧
+          gadget:
+            - ChuroiCaseLawList
+-   def: gadget
+    name: ChuroiCaseLawList
+    title: 中労委の判例
+    get:
+        type: sparql
+        page_size: 50
+        src: |
+            SELECT ?entity ?no ?casename ?court ?date ?disposition
+            WHERE {
+                $collection
+                ?entity caselawp:id ?id ;
+                        churoip:no ?no .
+                OPTIONAL { ?t a caselawo:Trial ; caselawp:id ?id .
+                           OPTIONAL { ?t caselawp:casename ?casename }
+                           OPTIONAL { ?t caselawp:court ?court } }
+                OPTIONAL { ?j a caselawo:Judgment ; caselawp:id ?id .
+                           OPTIONAL { ?j caselawp:judgmentdate ?date }
+                           OPTIONAL { ?j caselawp:disposition ?disposition } }
+            }
+            ORDER BY DESC(?date)
+    show:
+        type: htable
+        group_by: entity
+        columns:
+            - id: entity
+              type: link
+              string: "?no"
+              label: 判例番号
+              width: 100
+            - id: casename
+              label: 事件名
+              width: 360
+            - id: court
+              label: 裁判所
+              display: localname
+              width: 140
+              collection:
+                  view: ChuroiCaseLaw
+                  facet: churoi_court
+            - id: date
+              label: 判決年月日
+              width: 90
+            - id: disposition
+              label: 判決区分
+              display: localname
+              width: 120
+              collection:
+                  view: ChuroiCaseLaw
+                  facet: churoi_disposition
+-   def: gadget
+    name: facet_churoi_topic
+    get:
+        type: facet
+        name: churoi_topic
+        label: 判示事項
+        predicate: caselawp:id/^caselawp:id/churoip:判示事項
+        value_type: iri
+        match: selectable
+        search: true
+        limit: 30
+    show:
+        type: facet
+-   def: gadget
+    name: facet_churoi_court
+    get:
+        type: facet
+        name: churoi_court
+        label: 裁判所
+        predicate: caselawp:id/^caselawp:id/caselawp:court
+        value_type: iri
+        limit: 30
+    show:
+        type: facet
+-   def: gadget
+    name: facet_churoi_casecategory
+    get:
+        type: facet
+        name: churoi_casecategory
+        label: 事件の種類（符号）
+        predicate: caselawp:id/^caselawp:id/caselawp:casecategory
+        value_type: iri
+        limit: 20
+    show:
+        type: facet
+-   def: gadget
+    name: facet_churoi_disposition
+    get:
+        type: facet
+        name: churoi_disposition
+        label: 判決区分
+        predicate: caselawp:id/^caselawp:id/caselawp:disposition
+        value_type: iri
+        limit: 30
+    show:
+        type: facet
+# ---------------------------------------------------------------- 出典（2026.10.6）
+#   判例文書 dcterms:source caselaw:Source_courts（裁判所）/ caselaw:Source_churoi（中労委）
+-   def: gadget
+    name: facet_source
+    get:
+        type: facet
+        name: source
+        label: 出典
+        predicate: dcterms:source
+        value_type: iri
+        limit: 10
+    show:
+        type: facet
+-   def: gadget
+    name: CaseLawFromThisSource
+    # この出典の判決文書（件数と年の範囲）。コレクションへ
+    collection:
+        facet: source
+        class: caselawo:CaseLawDocument
+        label: この出典の判決文書をコレクションとして表示
+    get:
+        type: sparql
+        src: |
+            select (count(?doc) as ?n) (min(?year) as ?from) (max(?year) as ?to) where {
+            graph <http://ds.rois.ac.jp/caselaw/> {
+                ?doc dcterms:source $uri .
+                OPTIONAL {?doc caselawp:year ?year}
+            }}
+    show:
+        type: vtable
+        columns:
+            - id: n
+              label: 判決文書の数
+            - id: from
+              label: 最も古い年
+            - id: to
+              label: 最も新しい年

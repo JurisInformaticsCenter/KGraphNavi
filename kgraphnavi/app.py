@@ -741,7 +741,7 @@ RETRIEVE_FORM = '<form action="/search" method="GET"><div class="search_wrap"><i
 
 class Application:
     """Application"""
-    __slots__ = ("pages", "gadgetset", "title", "describe", "query_samples", "resource_samples", "collection_samples", "adjacent", "priority_list", "focus", "navi", "sparql_client", "data_dir", "max_rows", "prefixes", "class_page_cache", "text_search", "text_search_cache")
+    __slots__ = ("pages", "gadgetset", "title", "describe", "query_samples", "resource_samples", "collection_samples", "adjacent", "priority_list", "focus", "navi", "sparql_client", "data_dir", "data_dirs", "max_rows", "prefixes", "class_page_cache", "text_search", "text_search_cache")
     def __repr__(self):
         return f'Application={self.pages!r}, {self.gadgetset}'
 
@@ -759,6 +759,8 @@ class Application:
         self.navi = f'<nav class="navbar"><ul><li class="nav_left"><a href="{frontend_base_url}">{self.title}</a></li><li class="nav_right search_item">{RETRIEVE_FORM}</li></ul></nav>'
         self.sparql_client = sparql_client
         self.data_dir = Path(data_dir) if data_dir else None
+        # /data/<名前>/<path> で配信する別のフォルダ（設定の data_dirs。例: churoi → 中労委のlhtml）
+        self.data_dirs = {}
         self.max_rows = DEFAULT_MAX_ROWS
         self.prefixes = {}
         # RDFクラス → コレクションのページ名（上位クラスの問い合わせ結果を記憶する）
@@ -851,6 +853,8 @@ class Application:
                 query = {}
                 if config.get("class"):
                     query["class"] = config["class"]
+                if config.get("view"):
+                    query["view"] = config["view"]
                 query[f"f.{config['facet']}"] = uri
             else:
                 # 一覧をコレクションとして表示するボタン（このガジェットの SPARQL でコレクションを定義）
@@ -859,6 +863,8 @@ class Application:
                     query["uri"] = uri
                 if config.get("class"):
                     query["class"] = config["class"]
+                if config.get("view"):
+                    query["view"] = config["view"]
             action = (
                 f'<a class="gadget-action" href="/collection?{html_escape(urlencode(query))}">'
                 f'{html_escape(config.get("label") or "コレクションとして表示")}</a>'
@@ -1428,6 +1434,7 @@ def setconfig(config, base_dir=None):
         "sparql_endpoint",
         "frontend_base_url",
         "data_dir",
+        "data_dirs", # /data/<名前>/<path> で配信する別のフォルダ {名前: フォルダ}
         "max_rows",
         "label_lang",
         "text_search", # ファセットの候補の検索: auto（既定）/ bif / contains
@@ -1460,6 +1467,7 @@ def setconfig(config, base_dir=None):
     sparql_endpoint = None
     frontend_base_url = None
     data_dir = None
+    data_dirs = {}
     max_rows = DEFAULT_MAX_ROWS
     label_lang = None
     text_search = "auto"
@@ -1508,6 +1516,11 @@ def setconfig(config, base_dir=None):
                 frontend_base_url = config["frontend_base_url"]
             if "data_dir" in config:
                 data_dir = resolve_dir(config["data_dir"], base_dir)
+            if "data_dirs" in config:
+                if not isinstance(config["data_dirs"], dict):
+                    raise ConfigError("data_dirs は {名前: フォルダ} の形で書いてください")
+                for key, value in config["data_dirs"].items():
+                    data_dirs[str(key)] = resolve_dir(value, base_dir)
             if "label_lang" in config:
                 label_lang = config["label_lang"]
             if "text_search" in config:
@@ -1599,6 +1612,7 @@ def setconfig(config, base_dir=None):
         "prefixes": prefixes,
         "frontend_base_url": frontend_base_url,
         "data_dir": data_dir,
+        "data_dirs": data_dirs,
         "max_rows": max_rows,
         "text_search": text_search,
     }
@@ -1689,6 +1703,7 @@ def build_application(
         data_dir,
     )
     application.max_rows = cfg["max_rows"]
+    application.data_dirs = {k: v for k, v in (cfg.get("data_dirs") or {}).items() if v}
     application.text_search = cfg.get("text_search", "auto")
     application.prefixes = {**STANDARD_PREFIXES, **(cfg["prefixes"] or {})}
     return application

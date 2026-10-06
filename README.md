@@ -44,26 +44,23 @@ KGraphNaviでは、対象とする知識グラフに応じた設定をYAML形式
 
 ## インストール
 
-リポジトリを取得し、パッケージとしてインストールします（仮想環境の利用を推奨します）。
+リポジトリを取得します。
 
 ```bash
 git clone https://github.com/xiyewenren/KGraphNavi.git
 cd KGraphNavi
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[test]"
 ```
 
-インストールせずに依存パッケージだけを入れる場合は、以下でも動作します。
+必要なPythonパッケージをインストールします。
 
 ```bash
 pip install -r requirements.txt
 ```
 
-テストは以下で実行します。
+または、以下のコマンドで主要な依存パッケージをインストールできます。
 
 ```bash
-pytest
+pip install pyyaml flask sparqlwrapper
 ```
 
 ## 設定ファイル
@@ -129,24 +126,40 @@ KGraphNaviでは、対象とする知識グラフに応じた設定をYAML形式
 
 ## 設定ファイルの例
 
-リポジトリには、実際の知識グラフに接続しなくても設定ファイルの構造を理解できるよう、サンプル設定として `dbpedia.yaml` を提供しています。
+リポジトリには、実際の知識グラフに接続しなくても設定ファイルの構造を理解できるよう、サンプル設定として `dbpedia.yaml` を提供する予定です。
 
 ```text
 config/
 ├── caselaw.yaml
-├── dbpedia.yaml
-└── local.yaml.example
+└── dbpedia.yaml
 ```
 
-`caselaw.yaml` は判例知識グラフ用の設定です。
+`caselaw.yaml` は現在動作している判例知識グラフ用の設定です。
 
 一方、`dbpedia.yaml` はKGraphNaviの設定方法を理解するためのサンプルとして提供します。
 
+DBpediaを利用する場合は、DBpediaのSPARQLエンドポイントを指定してKGraphNaviを実行できます。
+
+> 注：`dbpedia.yaml` の具体的な設定内容および利用可能なSPARQLエンドポイントについては、サンプル設定の内容を確認してください。
+
 ## 起動方法
 
+### 判例データ用設定で起動する
+
+現在の環境では、以下のように起動できます。
+
 ```bash
-kgraphnavi config/dbpedia.yaml
+cd nii/frontend
+python -m src.kgraphnavi -e http://localhost:8890/sparql config/caselaw.yaml
 ```
+
+または、設定ファイル内で指定されたエンドポイントを利用する場合は、
+
+```bash
+python -m src.kgraphnavi config/caselaw.yaml
+```
+
+とします。
 
 起動後、Webブラウザから以下にアクセスします。
 
@@ -154,50 +167,16 @@ kgraphnavi config/dbpedia.yaml
 http://127.0.0.1:8000/
 ```
 
-`kgraphnavi` コマンドの代わりに `python -m kgraphnavi` でも起動できます。主なオプションは以下のとおりです。
-
-| オプション | 内容 |
-| --- | --- |
-| `-e`, `--endpoint` | SPARQLエンドポイント（設定ファイルの `sparql_endpoint` より優先） |
-| `-l`, `--label` | ラベルを表すプロパティ（既定 `rdfs:label`） |
-| `--data-dir` | `/data/<path>` で配信するフォルダ |
-| `--local` | ローカル設定ファイル（既定: 設定ファイルと同じフォルダの `local.yaml`） |
-| `--host`, `--port` | 待ち受けるホストとポート（既定 `127.0.0.1:8000`） |
-| `--dev` | 開発モード（Flaskのデバッガと自動再読み込み） |
-| `-d`, `--debug` | ログレベル |
-
-### ローカル設定
-
-SPARQLエンドポイントやデータフォルダなど、環境ごとに異なる値は `config/local.yaml` に書きます。
-`config/local.yaml.example` をコピーして使ってください。`config/local.yaml` はリポジトリに含まれません。
-
-### 判例データ用設定
-
-`caselaw.yaml` は、別途公開する判例RDFデータセットを閲覧・ナビゲーションするための設定です。
-
-```bash
-kgraphnavi -e http://localhost:8890/sparql --data-dir /path/to/caselaw/html config/caselaw.yaml
-```
-
-判決文書の HTML は限定公開のため、リポジトリには含みません。HTML を利用できる場合は、`<年>/<ID>_hanrei.html` の形で置いたフォルダを `--data-dir`（または `config/local.yaml` の `data_dir`）で指定してください。判決文書のページに HTML へのリンクが表示されます。
-
-判決文書の一覧・統計（PDFページ数分布、構造パターン）は `/collection?class=http://ds.rois.ac.jp/caselaw/ontology/CaseLawDocument` で表示し、訴訟類型・分野・権利種別・裁判種別・年で絞り込めます。
-
-### WSGIサーバでの運用
-
-環境変数で設定ファイルを指定し、WSGIサーバから起動できます。
-
-```bash
-KGRAPHNAVI_CONFIG=config/dbpedia.yaml gunicorn "kgraphnavi.app:create_app_from_env()"
-```
-
 ## DBpediaを利用したサンプル
 
-`config/dbpedia.yaml` は、KGraphNaviの設定方法を示すサンプルです。DBpediaの公開SPARQLエンドポイントを利用するため、インターネット接続が必要です。
+KGraphNaviの基本的な利用方法を確認するため、`config/dbpedia.yaml` をサンプル設定として提供します。
 
 ```bash
-kgraphnavi config/dbpedia.yaml
+cd nii/frontend
+python -m src.kgraphnavi config/dbpedia.yaml
 ```
+
+DBpediaを利用する場合、ネットワーク経由でSPARQLエンドポイントにアクセスするため、インターネット接続が必要です。
 
 ## Web画面
 
@@ -208,9 +187,9 @@ KGraphNaviでは、以下のような画面を提供します。
 | `/`                     | トップ画面      |
 | `/search?q=...`         | 検索結果       |
 | `/resource?uri=...`     | RDFリソースの詳細 |
-| `/collection?class=...` | コレクション（エンティティの集合）の表示 |
-| `/graph`                | 知識グラフ全体の統計 |
-| `/data/<path:filename>` | データフォルダ（`data_dir`）のファイルの配信 |
+| `/collections?uri=...`  | コレクションビュー  |
+| `/statistics?focus=...` | 統計ページ      |
+| `/data/<path:filename>` | データファイルの配信 |
 
 ## データ
 
@@ -224,7 +203,7 @@ KGraphNaviとともにデータを配布する場合は、データの出典、�
 
 ## ライセンス
 
-KGraphNaviのソースコードは **MIT License** の下で公開します（`LICENSE` を参照）。
+KGraphNaviのソースコードは **MIT License** の下で公開する予定です。
 
 KGraphNaviとともに配布するデータについては、ソースコードとは別のライセンスを適用します。
 
