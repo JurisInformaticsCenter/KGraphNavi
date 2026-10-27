@@ -70,7 +70,7 @@ kgraphnavi config/mykg.yaml
 kgraphnavi -e http://localhost:8890/sparql config/mykg.yaml   # エンドポイントを指定する
 ```
 
-手元の環境だけの設定（エンドポイント、配信するフォルダなど）は、設定ファイルと同じフォルダの `local.yaml` に書くと自動で読み込まれ、設定ファイルの値を上書きします（`config/local.yaml.example` を参照。`local.yaml` はリポジトリに含めません）。
+手元の環境だけの設定（エンドポイント、配信するフォルダなど）は、設定ファイルと同じフォルダの `<設定ファイル名>.local.yaml`（例 `caselaw.local.yaml`）か `local.yaml` に書くと自動で読み込まれ、設定ファイルの値を上書きします（`config/local.yaml.example` を参照。どちらもリポジトリに含めません）。
 
 ### コマンドラインのオプション
 
@@ -116,6 +116,7 @@ KGRAPHNAVI_CONFIG=config/mykg.yaml gunicorn "kgraphnavi.app:create_app_from_env(
 | [docs/user-guide.md](docs/user-guide.md) | ユーザーズガイド: 考え方と、設定ファイルの書き方の手順 |
 | [docs/config.md](docs/config.md) | 設定ファイルリファレンス: すべての設定項目 |
 | [docs/collection.md](docs/collection.md) | コレクションとファセット |
+| [docs/caselaw.md](docs/caselaw.md) | 日本の判例の知識グラフ（RDF の入手・読み込み、caselaw.yaml での動かし方） |
 | [docs/compare.md](docs/compare.md) | 並べて比べる |
 | [docs/topic.md](docs/topic.md) | トピック（キーワードからコレクションを作る。試作） |
 | [docs/developer-guide.md](docs/developer-guide.md) | 開発者ガイド: ソースコードの構成と拡張の方法 |
@@ -125,7 +126,7 @@ KGRAPHNAVI_CONFIG=config/mykg.yaml gunicorn "kgraphnavi.app:create_app_from_env(
 ```text
 config/
 ├── dbpedia.yaml          DBpedia のサンプル（公開のエンドポイントで動く）
-├── caselaw.yaml          日本の判例の知識グラフ用（データは準備ができしだい公開予定）
+├── caselaw.yaml          日本の判例の知識グラフ用（RDF は Releases で公開。docs/caselaw.md）
 └── local.yaml.example    ローカル設定の例
 ```
 

@@ -6,13 +6,9 @@
 # キーワードからトピックのコレクションを作る（/topic?q=パワーハラスメント|パワハラ。kgraphnavi/topic.py、docs/topic.md。2026.10.26）
 #   種の判例 = タームのラベルにキーワードを含む判例（| で区切るといずれか）。リンク = 中心の参照（法令・条）。
 #   偏りの大きい条は「主なリンク」（その条だけで入れる）、民法709条のように広く参照される条は「補助リンク」（語と一緒のときだけ確かさを上げる）。
-#   作り手は hanrei の src/topic_keyword.py（略語・派生語への広げ、関連語、本文の語の数。builder: command。数分かかる）。
-#   &builder=sparql を付けると、下の text_properties・link_properties で SPARQL だけで作る版（比べるため）
+#   ここでは SPARQL だけで作る（下の text_properties・link_properties）。hanrei のパイプラインがあれば、
+#   src/topic_keyword.py（略語・派生語への広げ、関連語、本文の語の数）で作る設定を local.yaml に書ける（local.yaml.example）
 -   topic:
-        builder: command
-        command: ["{python}", "src/topic_keyword.py", "{q}", "--json", "{json}"]
-        cwd: ~/nii/hanrei
-        timeout: 900
         item_class: caselawo:CaseLawDocument
         text_properties: ["dcterms:subject/rdfs:label"]
         lang: ja
@@ -55,11 +51,9 @@
                 title: 裁判官（行をそろえる）
                 align: person
                 value: role
--   data_dirs:          # /data/<名前>/<path> で配信する別のフォルダ（相対パスはこの設定ファイルのフォルダ基準。local.yaml で上書きできる）
-        churoi: ../../churoi/data/lhtml    # 中労委の判例のHTML（/data/churoi/h00030.html）   # 候補の検索: auto（bif:contains が使えれば使う）/ bif / contains
-        css: ../../churoi/data/css         # 中労委のHTMLが ../css/hanrei.css で参照するCSS（/data/css/hanrei.css）
--   static_dirs:        # /<名前>/<path> で配信するフォルダ（2026.10.19）
-        css: ../../hanrei/data/css         # 判例のHTML（/data/<年>/<ID>_hanrei.html）が ../../css/hanrei.css で参照するCSS（/css/hanrei.css）
+# 判例の HTML（本文）は /data/<年>/<ID>_hanrei.html で配信する。HTML は IDR（国立情報学研究所 情報学研究データリポジトリ）の
+# 「日本の判例HTMLデータ」で提供している（申請が必要。docs/caselaw.md）。手に入れたら、そのフォルダを local.yaml の data_dir
+# （またはコマンドラインの --data-dir）に書く。HTML の CSS・中労委の判例の HTML のフォルダも local.yaml に書く（local.yaml.example）
 -   prefixes:
         caselawo: "http://ds.rois.ac.jp/caselaw/ontology/"
         caselawp: "http://ds.rois.ac.jp/caselaw/property/"

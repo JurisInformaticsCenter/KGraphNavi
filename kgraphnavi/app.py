@@ -2004,16 +2004,20 @@ def resolve_config_path(name):
 def load_config(config_path, local_path=None):
     """設定ファイルを読み込み、ローカル設定があれば末尾に追加して返す。
 
-    ローカル設定は、local_path が指定されればそれを、なければ設定ファイルと
-    同じフォルダの local.yaml を（存在すれば）使う。後から読んだ設定が優先される。
+    ローカル設定は、local_path が指定されればそれを、なければ設定ファイルと同じフォルダの
+    <設定ファイル名>.local.yaml（例: caselaw.local.yaml。その設定ファイルだけに使う。2026.10.27）、
+    それも無ければ local.yaml を（存在すれば）使う。後から読んだ設定が優先される。
     """
     config_path = resolve_config_path(config_path)
     items = load_yaml(config_path) or []
     if not isinstance(items, list):
         raise ConfigError(f"設定ファイルは設定項目のリストでなければなりません: {config_path}")
     if local_path is None:
-        candidate = config_path.parent / LOCAL_CONFIG_NAME
-        local_path = candidate if candidate.is_file() else None
+        for candidate in (config_path.with_name(f"{config_path.stem}.local.yaml"),
+                          config_path.parent / LOCAL_CONFIG_NAME):
+            if candidate.is_file():
+                local_path = candidate
+                break
     if local_path is not None:
         local_items = load_yaml(local_path) or []
         if not isinstance(local_items, list):

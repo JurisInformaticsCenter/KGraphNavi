@@ -13,6 +13,7 @@ env/
 
 # ローカル設定・データ（各自の環境に依存するもの、限定公開のもの）
 config/local.yaml
+config/*.local.yaml
 data/
 workspace/
 *.db

@@ -457,7 +457,7 @@ LIMIT 12
 
 ### ローカル設定（`local.yaml`）
 
-設定ファイルと同じフォルダに `local.yaml` があれば、設定ファイルの後に読み込みます。後から読んだ設定が優先されるので、エンドポイントや配信するフォルダなど、手元の環境だけの値を上書きできます（`config/local.yaml.example`）。別のファイルを使うときは `--local <ファイル>`（環境変数 `KGRAPHNAVI_LOCAL`）で指定します。`local.yaml` は `.gitignore` の対象です。
+設定ファイルと同じフォルダに `<設定ファイル名>.local.yaml`（例: `caselaw.local.yaml`。その設定ファイルだけに使う）があればそれを、無ければ `local.yaml` を、設定ファイルの後に読み込みます。後から読んだ設定が優先されるので、エンドポイントや配信するフォルダなど、手元の環境だけの値を上書きできます（`config/local.yaml.example`）。別のファイルを使うときは `--local <ファイル>`（環境変数 `KGRAPHNAVI_LOCAL`）で指定します。`local.yaml` と `*.local.yaml` は `.gitignore` の対象です。
 
 ### 設定ファイルの探し方
 

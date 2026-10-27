@@ -1,7 +1,8 @@
 # ローカル設定の例
 #
-# このファイルを config/local.yaml としてコピーし、各自の環境に合わせて書き換えてください。
-# config/local.yaml は .gitignore の対象で、リポジトリには含まれません。
+# このファイルを config/local.yaml（すべての設定ファイルに使う）、または config/<設定ファイル名>.local.yaml
+# （例: config/caselaw.local.yaml。その設定ファイルだけに使う）としてコピーし、各自の環境に合わせて書き換えてください。
+# どちらも .gitignore の対象で、リポジトリには含まれません。
 # 設定ファイル（例: config/caselaw.yaml）と同じフォルダに local.yaml があると自動で読み込まれ、
 # 設定ファイルの値を上書きします。--local で別のファイルを指定することもできます。
 
@@ -10,15 +11,31 @@
 
 # /data/<path> で配信するフォルダ（判決HTMLなど）。~ と相対パス（このファイル基準）が使える
 # コマンドラインの --data-dir、環境変数 KGRAPHNAVI_DATA_DIR が優先
-# 判例データ（caselaw.yaml）では、<年>/<ID>_hanrei.html を置いたフォルダを指定する
+# 判例データ（caselaw.yaml）では、IDR の「日本の判例HTMLデータ」の <年>/<ID>_hanrei.html を置いたフォルダを指定する
+# （https://www.nii.ac.jp/dsc/idr/rdata/HANREI/ 。申請が必要。docs/caselaw.md）
 # - data_dir: ~/caselaw/html
 
 # /data/<名前>/<path> で配信する別のフォルダ（data_dir とは別に、名前ごとに置く）。caselaw.yaml の値を上書きする
-# 中労委の判例のHTMLは /data/churoi/<ID>.html
+# 中労委の判例のHTMLは /data/churoi/<ID>.html、そのCSSは /data/css/hanrei.css
 # - data_dirs:
 #     churoi: ~/nii/churoi/data/lhtml
+#     css: ~/nii/churoi/data/css
 
 # /<名前>/<path> で配信するフォルダ。caselaw.yaml の値を上書きする
 # 判例のHTMLは ../../css/hanrei.css（/css/hanrei.css）でCSSを参照する
 # - static_dirs:
-#     css: ~/nii/hanrei/data/css
+#     css: ~/caselaw/css
+
+# 判例のトピック（/topic）を hanrei のパイプラインの src/topic_keyword.py で作る（略語・派生語への広げ、関連語。数分かかる）。
+# 書かなければ caselaw.yaml の設定で SPARQL だけで作る。topic: は caselaw.yaml の topic: を丸ごと置き換えるので、全部の項目を書く
+# - topic:
+#     builder: command
+#     command: ["{python}", "src/topic_keyword.py", "{q}", "--json", "{json}"]
+#     cwd: ~/nii/hanrei
+#     timeout: 900
+#     item_class: caselawo:CaseLawDocument
+#     text_properties: ["dcterms:subject/rdfs:label"]
+#     lang: ja
+#     link_properties: [caselawp:reflawCore]
+#     text_search: contains
+#     seed_max: 5000
