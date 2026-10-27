@@ -558,9 +558,10 @@ def init_app(app):
 
     @app.errorhandler(SparqlError)
     def handle_sparql_error(error):
-        logger.error("SPARQL error: %s", error)
+        logger.error("SPARQL error: %s", getattr(error, "detail", None) or error)
         return render_template(
             "error.html",
-            title="SPARQL Error",
-            message=str(error),
-        ), 500
+            title="SPARQL エンドポイントのエラー",
+            message=getattr(error, "message", None) or str(error),
+            detail=getattr(error, "detail", None),
+        ), 502

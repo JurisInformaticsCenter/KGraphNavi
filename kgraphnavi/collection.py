@@ -212,6 +212,10 @@ class RangeCondition:
         )
 
 
+# 完全一致の検索で試す言語タグ（ラベルの言語タグが一致しないと VALUES では引けないので、主な言語を並べる）
+EXACT_LANGS = ("ja", "en", "de", "fr", "it", "es", "nl", "pt", "ru", "zh", "ko")
+
+
 @dataclass(frozen=True)
 class TextCondition:
     """ラベル（label_predicate の値）に検索語 text を含む（2026.10.19）。
@@ -242,10 +246,17 @@ class TextCondition:
         predicate = predicate_term(self.label_predicate)
         label_var = f"?_c{index}"
         lines = [f"{var} {predicate} {label_var} ."]
-        if self.method == "bif" and (expression := bif_text_expression(self.text)):
+        # 完全一致は VALUES で引くので bif:contains は使わない（Virtuoso では言語タグ付きの VALUES と bif:contains を
+        # 一緒に使うと rdf_box のエラー SR549 になる。2026.10.27）
+        if self.method == "bif" and not self.exact and (expression := bif_text_expression(self.text)):
             lines.append(f"{label_var} bif:contains {literal_term(expression)} .")
         if self.exact:
-            lines.append(f"FILTER(STR({label_var}) = {literal_term(str(self.text).strip())})")
+            # 完全一致は、ラベルの値（言語タグなし・主な言語タグ付き）を VALUES で与えて索引で引く。
+            # FILTER(STR(?l) = …) だけだとラベルを全件走査し、DBpedia のような大きなエンドポイントでは返らない（2026.10.27）
+            text = str(self.text).strip()
+            values = " ".join([literal_term(text)] + [f"{literal_term(text)}@{lang}" for lang in EXACT_LANGS])
+            lines.insert(0, f"VALUES {label_var} {{ {values} }}")
+            lines.append(f"FILTER(STR({label_var}) = {literal_term(text)})")
         else:
             tests = [f"CONTAINS(LCASE(STR({label_var})), {literal_term(word.lower())})" for word in self.words()]
             lines.append(f"FILTER({' && '.join(tests)})")

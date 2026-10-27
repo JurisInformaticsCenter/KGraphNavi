@@ -33,7 +33,7 @@
 -   rdfstore: virtuoso
 -   label: rdfs:label
 -   label_lang: en          # 組み込みのコレクションのページで使うラベルの言語
--   text_search: auto       # ファセットの候補の検索: auto（bif:contains が使えれば使う）/ bif / contains
+-   text_search: bif        # DBpedia は Virtuoso なので全文索引（bif:contains）を使う（auto の判定は起動直後のエラーで外れることがある。2026.10.27）
 -   max_rows: 2000          # 1つのガジェットで取得する行数の上限（既定 5000）
 # キーワードからトピックのコレクションを作る（/topic?q=stratovolcano。kgraphnavi/topic.py、docs/topic.md。2026.10.26）
 #   種の要素 = ラベルか英語の要約にキーワードがある記事。リンク = カテゴリ（dct:subject）と山脈・所在地。

@@ -16,8 +16,13 @@ def test_text_condition_contains_words():
 
 def test_text_condition_bif_and_exact():
     pattern = TextCondition("富士山", method="bif", exact=True).pattern("?uri", 1)
-    assert '?_c1 bif:contains \'"富士山"\'' in pattern or '?_c1 bif:contains "\\"富士山\\""' in pattern
+    # 完全一致は VALUES で引くので bif:contains は使わない（Virtuoso で VALUES の言語タグ付きリテラルと一緒に使うとエラー）
+    assert "bif:contains" not in pattern
     assert 'FILTER(STR(?_c1) = "富士山")' in pattern
+    partial = TextCondition("富士山", method="bif").pattern("?uri", 1)
+    assert '?_c1 bif:contains' in partial
+    # 完全一致はラベルの値を VALUES で与えて索引で引く（言語タグなし・主な言語タグ付き）
+    assert pattern.startswith('VALUES ?_c1 { "富士山" "富士山"@ja "富士山"@en')
 
 
 def test_text_condition_requires_text():

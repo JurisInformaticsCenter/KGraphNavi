@@ -13,6 +13,7 @@
 """
 
 import re
+import time
 import logging
 from SPARQLWrapper import SPARQLWrapper
 from .errors import SparqlError      # 作成した例外クラス
@@ -81,10 +82,52 @@ def substitute_params(sparql, params):
         sparql = pattern.sub(lambda _match: term, sparql)
     return sparql
     
+RETRIES = 1          # 一時的なエラーのときにやり直す回数
+RETRY_WAIT = 1.5     # やり直す前に待つ秒数
+
+
+def describe_error(e):
+    """例外から HTTP の状態コードと、エンドポイントのエラーの1行目（Virtuoso のエラーコードなど）を取り出す"""
+    status = getattr(e, "code", None)
+    text = str(e)
+    if status is None and (m := re.search(r"HTTP status code (\d{3})", text)):
+        status = int(m.group(1))
+    first_line = ""
+    if m := re.search(r"Response:\s*b?['\"](.*?)(?:\\n|$)", text, re.S):
+        first_line = m.group(1).strip()
+    if not first_line:
+        first_line = text.strip().splitlines()[0] if text.strip() else type(e).__name__
+    return status, first_line[:300]
+
+
+def is_transient(e, status):
+    """やり直す価値のあるエラーか（混雑・中継の失敗・タイムアウト・エンドポイントの内部エラー）"""
+    if status in (500, 502, 503, 504):
+        return True
+    return type(e).__name__ in ("URLError", "TimeoutError", "RemoteDisconnected", "ConnectionResetError")
+
+
+def user_message(status, first_line):
+    """利用者向けの説明"""
+    if status in (502, 503, 504):
+        head = f"SPARQL エンドポイントが応答しませんでした（HTTP {status}）。混雑しているか、一時的に止まっているようです。"
+    elif status == 500:
+        head = "SPARQL エンドポイントが内部エラーを返しました（HTTP 500）。公開のエンドポイントでは一時的な不具合のこともあります。"
+    elif status == 400:
+        head = "SPARQL エンドポイントが問い合わせを受け付けませんでした（HTTP 400）。設定ファイルの問い合わせの誤りかもしれません。"
+    elif status:
+        head = f"SPARQL エンドポイントがエラーを返しました（HTTP {status}）。"
+    else:
+        head = "SPARQL エンドポイントに接続できませんでした。"
+    tail = "少し待ってから、ページを再読み込みしてください。" if status != 400 else ""
+    return f"{head}{tail}" + (f"（{first_line}）" if first_line else "")
+
+
 class SPARQL:
-    __slots__ = ("sparql", "prefix", "retrieve_template", "retrieve_template_perfect")
+    __slots__ = ("sparql", "endpoint", "prefix", "retrieve_template", "retrieve_template_perfect")
     def __init__(self, endpoint, prefixes="", label_predicate="rdfs:label"):
-        self.sparql = SPARQLWrapper(endpoint=endpoint, returnFormat='json')
+        self.endpoint = endpoint
+        self.sparql = SPARQLWrapper(endpoint=endpoint, returnFormat='json')   # 互換のため残す（問い合わせごとに作る。下）
         self.prefix = make_prefix(prefixes)
         # label は無変化なのでここで埋め込む。検索語は毎回変わるので {text} のままにしておく
         # （{text} には literal_term() でエスケープした文字列リテラルが入る）
@@ -101,15 +144,25 @@ class SPARQL:
         logger.debug("SPARQL query=%r", query)
         logger.debug("SPARQL full_query=%r", full_query)
     
-        self.sparql.setQuery(full_query)
-    
-        try:
-            response = self.sparql.query()
-            logger.debug("SPARQL response=%s", type(response))
-            results = response.convert()
-        except Exception as e:
-            logger.exception("SPARQL execution failed")
-            raise SparqlError(str(e)) from e
+        # 問い合わせごとに SPARQLWrapper を作る（Flask は複数のリクエストを並行して処理するので、
+        # 1つを共有すると setQuery と query の間に別の問い合わせが入りうる。2026.10.27）
+        # 公開のエンドポイント（DBpedia など）は一時的なエラー（502・503・内部エラー）を返すことがあるので、1回だけやり直す
+        for attempt in range(1 + RETRIES):
+            wrapper = SPARQLWrapper(endpoint=self.endpoint, returnFormat='json')
+            wrapper.setQuery(full_query)
+            try:
+                response = wrapper.query()
+                logger.debug("SPARQL response=%s", type(response))
+                results = response.convert()
+                break
+            except Exception as e:
+                status, first_line = describe_error(e)
+                if attempt < RETRIES and is_transient(e, status):
+                    logger.warning("SPARQL の一時的なエラー（%s）。やり直します: %s", status or type(e).__name__, first_line)
+                    time.sleep(RETRY_WAIT)
+                    continue
+                logger.exception("SPARQL execution failed")
+                raise SparqlError(user_message(status, first_line), detail=str(e), status=status) from e
     
         logger.debug("*****SPARQL results=%r", results)
     

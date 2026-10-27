@@ -3,9 +3,18 @@
 <head>
   <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
   <title>{{ title or message_type or "Error" }}</title>
+  <style>
+    body { font-family: sans-serif; margin: 2em; color: #222; }
+    details { margin-top: 1.5em; color: #555; }
+    pre { white-space: pre-wrap; word-break: break-all; font-size: 85%; background: #f5f5f5; padding: 0.8em; }
+  </style>
 </head>
 <body>
   <h1>{{ message_type or title or "Error" }}</h1>
-    <p>{{ message }}</p>
+  <p>{{ message }}</p>
+  {% if detail %}
+  <details><summary>詳しい情報（エンドポイントの返したエラーと問い合わせ）</summary><pre>{{ detail }}</pre></details>
+  {% endif %}
+  <p><a href="javascript:location.reload()">再読み込み</a>　<a href="/">トップへ</a></p>
 </body>
 </html>

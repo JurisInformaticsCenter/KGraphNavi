@@ -34,7 +34,7 @@ from .saved import SavedCollectionStore, DEFAULT_SAVE_MAX
 from .topic import topic_settings
 from .compare import compare_settings, resolve_types as resolve_compare_types, COMPARE_MAX
 from .collection import Collection, bif_text_expression
-from .errors import ConfigError, GadgetError, ShowError, KGraphError
+from .errors import ConfigError, GadgetError, ShowError, KGraphError, SparqlError
 from .terms import predicate_term, literal_term, language_tag, is_iri, iri_term
 from .facets import (
     facet_selection,
@@ -935,8 +935,10 @@ def probe_bif_contains(sparql_client, label_predicate="rdfs:label"):
                 f"SELECT ?s WHERE {{ ?s {predicate} ?l . ?l bif:contains {literal_term(expression)} . }} LIMIT 1"
             )
             return "bif" if found else "contains"
-    except Exception as e:  # エラーなら bif:contains は使えない
-        logger.info("bif:contains は使えません: %s", e)
+    except Exception as e:
+        # エンドポイントの一時的なエラー（DBpedia の 502 など）もあるので、決めずに次の問い合わせでまた試す（2026.10.27）
+        logger.info("bif:contains が使えるか確かめられません（次にまた試します）: %s", e)
+        return None
     return "contains"
 
 
@@ -1014,7 +1016,10 @@ class Application:
         if cache is None:
             cache = {}
         if label_predicate not in cache:
-            cache[label_predicate] = probe_bif_contains(self.sparql_client, label_predicate)
+            method = probe_bif_contains(self.sparql_client, label_predicate)
+            if method is None:          # 確かめられなかった: 今回は CONTAINS で探し、覚えない
+                return "contains"
+            cache[label_predicate] = method
             logger.info(
                 "候補の検索（%s）: %s", label_predicate,
                 "全文索引 bif:contains を使います" if cache[label_predicate] == "bif"
@@ -1065,7 +1070,17 @@ class Application:
             gadget,
             collection,
         )
-        content = gadget.extract(uri, application=self, params=params, collection=collection)
+        try:
+            content = gadget.extract(uri, application=self, params=params, collection=collection)
+        except SparqlError as e:
+            # 1つのガジェットの問い合わせの失敗で、ページ全体をエラーにしない（DBpedia など公開のエンドポイント。2026.10.27）
+            return f"""
+        <section class="gadget">
+        <h2 class="gadget-title">{html_escape(self.gadget_title(gadget_name, gadget))}</h2>
+        <p class="gadget-error">{html_escape(e.message)}</p>
+        <details class="gadget-error-detail"><summary>詳しい情報</summary><pre>{html_escape(e.detail or '')}</pre></details>
+        </section>
+        """
         logger.debug(
             "gadget extract: type=%s rows=%d",
             type(content).__name__,

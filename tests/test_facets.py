@@ -825,8 +825,20 @@ def test_probe_bif_contains():
     # 短すぎるラベルは使わず、次のラベルで試す
     assert 'bif:contains "\\"パロディー写真\\""' in sparql.queries[-1]
     assert probe_bif_contains(ProbeSPARQL(["パロディー写真"], found=False)) == "contains"
-    assert probe_bif_contains(ProbeSPARQL(["パロディー写真"], error=True)) == "contains"
+    # エラーは一時的なこともあるので決めない（None。次の問い合わせでまた試す。2026.10.27）
+    assert probe_bif_contains(ProbeSPARQL(["パロディー写真"], error=True)) is None
     assert probe_bif_contains(ProbeSPARQL([])) == "contains"
+
+
+def test_text_search_method_retries_after_error():
+    application = make_application({})
+    application.text_search = "auto"
+    application.text_search_cache = {}
+    application.sparql_client = ProbeSPARQL(["パロディー写真"], error=True)
+    assert application.text_search_method() == "contains"     # 今回は CONTAINS
+    assert application.text_search_cache == {}                # 覚えない
+    application.sparql_client = ProbeSPARQL(["パロディー写真"])
+    assert application.text_search_method() == "bif"          # 次に試して決まる
 
 
 def test_text_search_method_setting_and_cache():
