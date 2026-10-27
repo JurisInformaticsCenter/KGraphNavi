@@ -5,7 +5,7 @@
 ##  File:
 ##      render_utils.py
 ##  Author:
-##      Fumihito NISHINO       nisino@nii.ac.jp
+##      Fumihito NISHINO       nishino@nii.ac.jp
 ##  Description:
 ##      データを表示用の構造に変換する
 """

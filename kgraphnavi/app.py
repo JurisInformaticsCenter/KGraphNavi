@@ -5,7 +5,7 @@
 ##  File:
 ##      app.py
 ##  Author:
-##      Fumihito NISHINO       nisino@nii.ac.jp
+##      Fumihito NISHINO       nishino@nii.ac.jp
 ##  Description:
 ##        指定されたコンフィグレーションのKGraphNaviを起動する
 ##        Gadget/Pageを管理し、extract → showを制御

@@ -5,7 +5,7 @@
 ##  File:
 ##      topic.py
 ##  Author:
-##      Fumihito NISHINO       nisino@nii.ac.jp
+##      Fumihito NISHINO       nishino@nii.ac.jp
 ##  Description:
 ##      キーワードからトピックのコレクションを作る（2026.10.26）。判例に限らない一般の仕組み。
 ##      設定の topic: 節（集める要素のクラス、語を探すプロパティ、「リンク」のプロパティ、しきい値）だけを使う。

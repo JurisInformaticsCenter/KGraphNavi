@@ -5,7 +5,7 @@
 ##  File:
 ##      compare.py
 ##  Author:
-##      Fumihito NISHINO       nisino@nii.ac.jp
+##      Fumihito NISHINO       nishino@nii.ac.jp
 ##  Description:
 ##      少数（2〜4）のリソースを縦の列に並べて比べる（/compare。2026.10.26）
 ##

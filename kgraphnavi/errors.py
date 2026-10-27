@@ -5,7 +5,7 @@
 ##  File:
 ##      errors.py
 ##  Author:
-##      Fumihito NISHINO       nisino@nii.ac.jp
+##      Fumihito NISHINO       nishino@nii.ac.jp
 """
 
 class KGraphError(Exception):

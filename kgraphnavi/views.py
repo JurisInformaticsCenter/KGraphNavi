@@ -5,7 +5,7 @@
 ##  File:
 ##      views.py
 ##  Author:
-##      Fumihito NISHINO       nisino@nii.ac.jp
+##      Fumihito NISHINO       nishino@nii.ac.jp
 ##  Description:
 ##      FlaskのHTTPリクエストを受け、ページ生成を呼び出す
 """
