@@ -16,6 +16,7 @@ import uuid
 import logging
 import heapq
 import random
+import unicodedata
 from html import escape
 from collections import defaultdict
 from urllib.parse import quote, urlencode
@@ -323,11 +324,175 @@ def group_rows(data, group_by, columns=None):
     return rows
 
 
-def show_horizontal_table(data, columns=None, height=None, group_by=None, paging=True):
+def natural_key(text):
+    """数字の部分を数の大小で比べる並べ替えのキー（例: 90条 < 570条 < 570条の2、全角数字も）。"""
+    text = unicodedata.normalize("NFKC", str(text or ""))
+    return [
+        (0, int(part), "") if part.isdigit() else (1, 0, part)
+        for part in re.split(r"(\d+)", text)
+        if part
+    ]
+
+
+def _cell_text(cell):
+    """セルの表示文字列（複数値のセルはつなげる）。"""
+    if not isinstance(cell, dict):
+        return "" if cell is None else str(cell)
+    value = cell.get("value")
+    if isinstance(value, list):
+        return "、".join(_cell_text(item) if isinstance(item, dict) else str(item) for item in value)
+    return "" if value is None else str(value)
+
+
+def arrange_tree(rows, records, tree):
+    """行を親子の順（深さ優先）に並べ、各行に階層表示の情報 _kgtree を付ける。
+
+    rows:    表示用セルの辞書のリスト
+    records: rows と同じ順の SPARQL の結果（行の識別子・親を取り出す）
+    tree:    show.tree の設定
+        node:          行の識別子の変数（例: legislation）
+        parent:        親の識別子の変数（どちらか一方）
+        parent_regex:  識別子からこの正規表現に合う末尾を取り除いたものを親とする。
+                       その識別子の行がなければ、さらに取り除いて、ある行まで遡る
+                       （例: "_[^_/]*$" で …_570_1 → …_570 → 法令）
+        column:        字下げ・折りたたみをする列（例: label）
+        sort:          同じ親の子を並べる列（省略時は column）。数字は数の大小で比べる
+        strip_parent:  column の値が親の値で始まるとき、その部分を省く（既定 true）
+        collapsed:     最初から子を折りたたんでおくか（既定 false）
+        same_as_parent: 列のリスト。親と同じ値なら子の行では空にする
+                       （例: 条の見出し・解説を、項・号の行では繰り返さない）
+        parent_by:     contains なら、column の値を部分に含む行のうち最も長いものを親とする
+                       （例: 「マンション」>「マンション建設」>「マンション建設工事」。node・parent は不要）
+        parent_min_length: parent_by: contains で親にする値の最短の長さ（既定 2）
+        order:         size なら、子孫の多い行を先に並べる（同じ数なら sort の列の順）
+    親の行がない行は最上位に置く。
+    """
+    node_var = tree.get("node")
+    parent_var = tree.get("parent")
+    parent_regex = tree.get("parent_regex")
+    column = tree.get("column")
+    sort_column = tree.get("sort") or column
+    strip_parent = tree.get("strip_parent", True)
+    same_as_parent = tree.get("same_as_parent") or []
+    if isinstance(same_as_parent, str):
+        same_as_parent = [same_as_parent]
+
+    ids = [str(get_raw_value(record.get(node_var))) if node_var else str(i)
+           for i, record in enumerate(records)]
+    index = {}
+    for i, node_id in enumerate(ids):
+        if node_id and node_id not in index:
+            index[node_id] = i
+
+    def find_parent(i):
+        if parent_var:
+            parent_id = get_raw_value(records[i].get(parent_var))
+            if parent_id and parent_id != ids[i]:
+                return index.get(str(parent_id))
+            return None
+        if parent_regex:
+            current = ids[i]
+            while True:
+                upper = re.sub(parent_regex, "", current, count=1)
+                if not upper or upper == current:
+                    return None
+                if upper in index and index[upper] != i:
+                    return index[upper]
+                current = upper
+        return None
+
+    if tree.get("parent_by") == "contains":
+        # 同じ値の行は最初の行だけを親の候補にする
+        min_length = int(tree.get("parent_min_length", 2))
+        texts = [_cell_text(row.get(column)) for row in rows]
+        candidates = {}
+        for i, text in enumerate(texts):
+            if len(text) >= min_length and text not in candidates:
+                candidates[text] = i
+        by_length = sorted(candidates.items(), key=lambda item: -len(item[0]))
+
+        def find_parent(i):  # noqa: F811
+            text = texts[i]
+            for candidate, j in by_length:
+                if len(candidate) < len(text) and candidate in text:
+                    return j
+            return None
+        ids = [str(i) for i in range(len(rows))]
+        index = {node_id: i for i, node_id in enumerate(ids)}
+
+    parents = [find_parent(i) for i in range(len(rows))]
+    children = defaultdict(list)
+    roots = []
+    for i, parent in enumerate(parents):
+        if parent is None or index.get(ids[i]) != i:
+            roots.append(i)
+        else:
+            children[parent].append(i)
+
+    sizes = {}
+
+    def subtree_size(i):
+        if i not in sizes:
+            sizes[i] = 0  # 循環しても止まるように
+            sizes[i] = sum(1 + subtree_size(k) for k in children.get(i, []))
+        return sizes[i]
+
+    if tree.get("order") == "size":
+        def sort_key(i):
+            return (-subtree_size(i), natural_key(_cell_text(rows[i].get(sort_column))))
+    else:
+        def sort_key(i):
+            return natural_key(_cell_text(rows[i].get(sort_column)))
+
+    result = []
+    visited = set()
+
+    def walk(i, depth, ancestors):
+        if i in visited:
+            return
+        visited.add(i)
+        row = dict(rows[i])
+        kids = sorted(children.get(i, []), key=sort_key)
+        parent = ancestors[-1] if ancestors else None
+        if strip_parent and parent is not None and isinstance(row.get(column), dict):
+            text = _cell_text(rows[i].get(column))
+            parent_text = _cell_text(rows[parent].get(column))
+            if parent_text and len(text) > len(parent_text) and text.startswith(parent_text):
+                cell = dict(row[column])
+                cell["value"] = text[len(parent_text):].lstrip()
+                row[column] = cell
+        if parent is not None:
+            for key in same_as_parent:
+                cell, parent_cell = rows[i].get(key), rows[parent].get(key)
+                if (isinstance(cell, dict) and isinstance(parent_cell, dict)
+                        and _cell_text(cell) == _cell_text(parent_cell)
+                        and cell.get("href") == parent_cell.get("href")):
+                    row[key] = {"value": "", "type": "literal"}
+        row["_kgtree"] = {
+            "id": i,
+            "depth": depth,
+            "anc": list(ancestors),
+            "hasChildren": bool(kids),
+        }
+        result.append(row)
+        for kid in kids:
+            walk(kid, depth + 1, ancestors + [i])
+
+    for root in sorted(roots, key=sort_key):
+        walk(root, 0, [])
+    # 親子が循環しているなど、たどれなかった行
+    for i in range(len(rows)):
+        if i not in visited:
+            walk(i, 0, [])
+    return result
+
+
+def show_horizontal_table(data, columns=None, height=None, group_by=None, paging=True, tree=None):
     """SPARQL結果を横型テーブルとして表示する。
 
     group_by: この変数の値が同じ行を1行にまとめる（例: entity）
     paging:   表のライブラリ（jsGrid）のページ送りを使うか
+    tree:     親子の階層で表示する（arrange_tree を参照）
     """
 
     logger.debug(
@@ -345,12 +510,25 @@ def show_horizontal_table(data, columns=None, height=None, group_by=None, paging
         rows = group_rows(data, group_by, columns)
     else:
         rows = [get_record_cells(record, columns) for record in data]
+    if tree and rows:
+        if group_by:
+            # group_rows と同じ順（各グループが最初に現れた順）の代表のレコード
+            first = {}
+            for record in data:
+                binding = record.get(group_by)
+                key = get_raw_value(binding) if binding is not None else id(record)
+                first.setdefault(key, record)
+            records = list(first.values())
+        else:
+            records = list(data)
+        rows = arrange_tree(rows, records, tree)
     return make_table(
         rows,
         header=header,
         columns=columns,
         height=height,
         paging=paging,
+        tree=tree if (tree and rows) else None,
     )
 
 def show_retrieval_result(data, columns=None):

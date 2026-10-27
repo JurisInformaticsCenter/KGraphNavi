@@ -26,3 +26,10 @@ workspace/
 
 # バックアップ
 *.bak*
+
+# 名前を付けて保存したコレクション（2026.10.19）
+config/saved_collections/
+
+# 作業用（2026.10.27）
+_old/
+tmp_out/

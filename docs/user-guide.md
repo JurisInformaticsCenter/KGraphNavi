@@ -1,2084 +1,702 @@
 # KGraphNavi ユーザーズガイド
 
-## 1. はじめに
+このガイドでは、KGraphNavi の考え方と、自分の知識グラフ用の設定ファイルを書く手順を説明します。例はすべて DBpedia のサンプル [`config/dbpedia.yaml`](../config/dbpedia.yaml) から取っています。サンプルを動かしながら読むと分かりやすいでしょう。
 
-KGraphNavi は、RDF データを SPARQL によって検索し、検索結果を Web ページとして表示するナビゲーションシステムです。
+- すべての設定項目の一覧: [設定ファイルリファレンス](config.md)
+- コレクションとファセットの詳細: [コレクションとファセット](collection.md)
+- ソースコードの構成: [開発者ガイド](developer-guide.md)
 
-KGraphNavi では、RDF リソースの種類に応じた `Page` を定義し、Page を複数の `Gadget` から構成します。
+## 目次
 
-Gadget は、
-
-1. データを取得する
-2. 取得したデータを表示する
-
-という2つの役割を持ちます。
-
-設定ファイルでは、主に次のような構造でアプリケーションを定義します。
-
-設定ファイル
-    │
-    ├── アプリケーション設定
-    │
-    ├── Page
-    │     └── Gadget
-    │           ├── get
-    │           └── show
-    │
-    └── その他のデータ設定
-
-この構造により、データセット固有の表示内容を、KGraphNavi 本体のプログラムを変更せずに設定ファイルから構成できます。
+1. [KGraphNavi でできること](#1-kgraphnavi-でできること)
+2. [基本の考え方](#2-基本の考え方)
+3. [はじめての設定](#3-はじめての設定)
+4. [リソースのページを作る](#4-リソースのページを作る)
+5. [画面をつなぐ](#5-画面をつなぐ)
+6. [コレクションのページを作る](#6-コレクションのページを作る)
+7. [ファセットで絞り込む](#7-ファセットで絞り込む)
+8. [知識グラフ全体のページ](#8-知識グラフ全体のページ)
+9. [トップ画面](#9-トップ画面)
+10. [運用](#10-運用)
+11. [トラブルシューティング](#11-トラブルシューティング)
+12. [用語](#12-用語)
 
 ---
 
-# 2. 基本概念
+## 1. KGraphNavi でできること
 
-## 2.1 RDF リソース
+KGraphNavi は、SPARQL エンドポイントで公開されている RDF の知識グラフを、Web 画面で見て回るためのアプリケーションです。
 
-KGraphNavi は RDF リソースを URI によって識別します。
+- リソース（例: マッターホルン）を開くと、その種類（`rdf:type`、例: 山）に応じた画面が出ます。画面には、概要の表、説明、関連するリソースの一覧などが並びます。
+- 一覧の中のリソースや値をクリックすると、そのリソースの画面や、その値を持つリソースの集合（コレクション）の画面へ移ります。
+- コレクションの画面では、要素の一覧と統計（グラフ）を表示し、ファセット（国、標高の範囲など）で絞り込めます。
 
-例えば、
+どのクラスにどのような画面を出すかは、すべて YAML の設定ファイルに書きます。SPARQL を書ければ、プログラムを変えずに画面を作れます。
+
+---
+
+## 2. 基本の考え方
+
+### 2.1 ページとガジェット
+
+KGraphNavi の画面は **ページ** で、ページは **ガジェット** を並べたものです。
 
 ```text
-http://dbpedia.org/resource/France
+ページ（例: Mountain … 山のリソースの画面）
+ ├── ガジェット MountainProfile（山の概要の表）
+ ├── ガジェット Abstract（説明）
+ └── ガジェット SameRange（同じ山脈の山の一覧）
 ```
 
-という URI は、1つの RDF リソースを表します。
-
-リソースには、
-
-- ラベル
-
-- RDF type
-
-- 他のリソースとの関係
-
-- 数値
-
-- 日付
-
-- 画像 URI
-
-などの情報が関連付けられています。
-
----
-
-## 2.2 Page
-
-`Page` は、特定の RDF リソースをどのような画面として表示するかを定義します。
-
-Page には、
-
-- Page 名
-
-- 対象となる RDF type
-
-- 表示する Gadget
-
-を指定します。
-
-例えば、
+ガジェットは、**取得**（`get`: SPARQL でデータを取る）と **表示**（`show`: 表やグラフにする）の組です。
 
 ```yaml
-- def: page
-  name: Mountain
-  type: http://dbpedia.org/ontology/Mountain
-  gadget:
-    - MountainInfo
-    - MountainH
+-   def: gadget
+    name: Abstract
+    get:                          # 取得: 表示中のリソース（$uri）の説明を取る
+        type: sparql
+        src: |
+            SELECT ?lang ?abstract
+            WHERE {
+                $uri dbo:abstract ?abstract .
+                BIND(LANG(?abstract) AS ?lang)
+                FILTER(?lang IN ("ja", "en"))
+            }
+    show:                         # 表示: 横の表にする
+        type: htable
+        columns:
+            - id: lang
+              label: 言語
+            - id: abstract
+              label: 説明
 ```
 
-とすると、Mountain type のリソースを表示するときに、
+### 2.2 ページの種類
 
-- `MountainInfo`
+| 種類 | URL | 表示するもの |
+| --- | --- | --- |
+| リソースのページ | `/resource?uri=<IRI>` | 1つのリソース。`$uri` がそのリソースになる |
+| コレクションのページ | `/collection?class=…` など | リソースの集合。`$collection` がその集合になる |
+| 全体のページ | `/graph` | 知識グラフ全体の集計など |
 
-- `MountainH`
+### 2.3 リソースのページの選ばれ方
 
-という2つの Gadget が表示されます。
+`/resource?uri=<IRI>` を開くと、次の順でページが決まります。
+
+1. そのリソースの `rdf:type` を調べる
+2. `rdf:type` が複数あれば、設定の `priority` のリストで最も前にあるクラスを選ぶ
+3. そのクラスを `type` に書いたページを使う。なければ `type: '*'` のページを使う
+
+DBpedia のマッターホルンには `dbo:Mountain`、`dbo:Place`、`owl:Thing` など多くのクラスが付いているので、`priority` の先頭に `dbo:Mountain` を書いて、山のページが選ばれるようにしています。
+
+### 2.4 コレクションとファセット
+
+**コレクション** はリソースの集合です。クラスのインスタンス（すべての山）、SPARQL で定義した集合（アルプスの山）、ガジェットの一覧（同じ山脈の山）がコレクションになります。
+
+**ファセット** は、コレクションを絞り込むための部品です。「国」のファセットでスイスを選ぶと、スイスの山だけになり、同じページのすべてのガジェット（一覧、グラフ、他のファセットの件数）がその条件で表示し直されます。
 
 ---
 
-## 2.3 Gadget
+## 3. はじめての設定
 
-`Gadget` は Page を構成する表示部品です。
+### 3.1 最小の設定
 
-Gadget は、
+どの知識グラフでも動く、最小の設定です。すべてのリソースに、そのリソースから出るリンクと値の一覧を表示します。
+
+```yaml
+-   title: My KG
+-   sparql_endpoint: "http://localhost:8890/sparql"
+-   def: page
+    name: Resource
+    type: '*'
+    gadget:
+        - Out
+-   def: gadget
+    name: Out
+    get:
+        type: sparql
+        src: |
+            SELECT ?p ?o WHERE { $uri ?p ?o } LIMIT 500
+    show:
+        type: htable
+        columns:
+            - id: p
+              type: link
+              display: localname
+            - id: o
+```
+
+`config/mykg.yaml` として保存し、起動します。
+
+```bash
+kgraphnavi config/mykg.yaml
+```
+
+`http://127.0.0.1:8000/resource?uri=<リソースのIRI>` を開くと、一覧が表示されます。プロパティの列はリンクになっているので、クリックするとそのプロパティのページへ移ります。
+
+### 3.2 接頭辞
+
+SPARQL の `PREFIX` は、ガジェットごとには書かず、`prefixes` にまとめて書きます。すべての問い合わせの先頭に付きます。`rdf` `rdfs` `xsd` `owl` は書かなくても使えます。
+
+```yaml
+-   prefixes:
+        dbo: "http://dbpedia.org/ontology/"
+        dbr: "http://dbpedia.org/resource/"
+        dct: "http://purl.org/dc/terms/"
+```
+
+ページの `type` や `class` にも、`dbo:Mountain` のような接頭辞付きの名前が使えます（`priority` だけは完全な IRI で書きます）。
+
+### 3.3 設定の誤り
+
+起動時に設定を検証します。未知の項目、定義されていないガジェットの参照、必須項目の書き忘れなどがあると、エラーの一覧を出して止まります。
 
 ```text
-get
- ↓
-show
+kgraphnavi.errors.ConfigError: 設定エラーが見つかりました:
+  - page(Mountain) -> gadget(MountainProfil)
 ```
 
-という構造になっています。
+---
 
-`get` はデータ取得方法を指定し、`show` は取得したデータの表示方法を指定します。
+## 4. リソースのページを作る
+
+### 4.1 クラスのページ
+
+`type` にクラスを書くと、そのクラスのリソースのページになります。
 
 ```yaml
-- def: gadget
-  name: MountainInfo
-
-  get:
-    type: sparql
-    src: |
-      SELECT ?name
-      WHERE {
-        $uri <http://example.org/name> ?name
-      }
-
-  show:
-    type: vtable
+-   def: page
+    name: Mountain
+    type: dbo:Mountain
+    gadget:
+        - MountainProfile
+        - Abstract
 ```
 
----
+`type: '*'` のページは、対応するページのないリソースに使われます。最後の受け皿として1つ置いておくと便利です。
 
-## 2.4 リソースページ
+### 4.2 縦の表（vtable）: 1つのリソースの概要
 
-リソースページは、特定の RDF URI を表示するページです。
-
-概念的には、
-
-```text
-/resource?uri=<RDF URI>
-```
-
-のように URI を指定して表示します。
-
-リソースページでは、対象リソースの RDF type を調べ、その type に対応する Page が選択されます。
-
-その後、Page に指定された Gadget が順番に実行されます。
-
----
-
-## 2.5 Gadget の実行
-
-Page に、
+`vtable` は、SPARQL の結果の最初の1行を「属性・値」の2列で表示します。1つのリソースの概要に向いています。値がないこともあるプロパティは `OPTIONAL` で取ります。
 
 ```yaml
-gadget:
-  - Profile
-  - Relations
-  - Network
+-   def: gadget
+    name: MountainProfile
+    title: 山の概要
+    get:
+        type: sparql
+        src: |
+            SELECT ?elevation ?firstAscent ?thumbnail ?wikipedia
+            WHERE {
+                OPTIONAL { $uri dbo:elevation ?elevation }
+                OPTIONAL { $uri dbo:firstAscentYear ?firstAscent }
+                OPTIONAL { $uri dbo:thumbnail ?thumbnail }
+                OPTIONAL { $uri foaf:isPrimaryTopicOf ?wikipedia }
+            }
+            LIMIT 1
+    show:
+        type: vtable
+        attribute_width: 160      # 属性の列の幅
+        value_width: 520          # 値の列の幅
+        columns:
+            - id: elevation
+              label: 標高（m）
+            - id: firstAscent
+              label: 初登頂の年
+            - id: thumbnail
+              label: 画像
+              type: image         # 値の URL の画像を表示する
+              width: 400          # 画像の幅
+            - id: wikipedia
+              label: Wikipedia
+              type: directlink    # 値の URL へのリンク
 ```
 
-と指定されている場合、これらの Gadget が順番に処理されます。
+`$uri` は、表示中のリソースの IRI に置き換わります。`title` はガジェットの見出しです（省略するとガジェットの名前）。
 
-各 Gadget について、
+### 4.3 横の表（htable）: 一覧
 
-```text
-対象 URI
-   ↓
-get
-   ↓
-取得データ
-   ↓
-show
-   ↓
-HTML
-```
-
-という処理が行われます。
-
----
-
-# 3. 設定ファイル
-
-## 3.1 設定ファイルの構造
-
-KGraphNavi の設定ファイルは YAML 形式です。
-
-設定ファイルには、アプリケーション全体の設定と、Page / Gadget の定義を記述します。
-
-主な項目は次のとおりです。
-
-| 項目              | 説明             |
-| --------------- | -------------- |
-| `title`         | アプリケーションタイトル   |
-| `describe`      | アプリケーション説明     |
-| `rdfstore`      | RDF ストア設定      |
-| `label`         | 検索に利用するラベル     |
-| `priority`      | RDF type の優先順位 |
-| `query_samples` | クエリサンプル        |
-| `uri_samples`   | URI サンプル       |
-| `import`        | 外部データ          |
-| `def: page`     | Page 定義        |
-| `def: gadget`   | Gadget 定義      |
-
----
-
-## 3.2 title
-
-アプリケーションのタイトルを指定します。
+`htable` は、SPARQL の結果の1行を表の1行にします。
 
 ```yaml
-title: KGraphNavi
+-   def: gadget
+    name: FirstAscents
+    title: 初登頂した山
+    get:
+        type: sparql
+        src: |
+            SELECT DISTINCT ?entity ?label ?firstAscent
+            WHERE {
+                ?entity dbo:firstAscentPerson $uri ;
+                        rdfs:label ?label .
+                FILTER(LANG(?label) = "en")
+                OPTIONAL { ?entity dbo:firstAscentYear ?firstAscent }
+            }
+            ORDER BY ?firstAscent
+    show:
+        type: htable
+        columns:
+            - id: label
+              label: 山
+              link: entity        # 表示はラベル、リンク先は ?entity のページ
+              width: 250
+            - id: firstAscent
+              label: 初登頂の年
+              width: 100
 ```
 
-トップページなどで使用されます。
+表の見出しをクリックすると並べ替えができ、行が多いと表の下にページ送りが出ます。
 
----
+### 4.4 列の表示とリンク
 
-## 3.3 describe
+列（`columns`）では、表示する文字列とリンク先を別々に決められます。
 
-アプリケーションの説明を指定します。
+| 書き方 | 表示 | リンク先 |
+| --- | --- | --- |
+| `type: link` | 値（IRI） | 値のリソースのページ |
+| `type: link` と `display: localname` | IRI のローカル名（`…/Switzerland` → `Switzerland`） | 値のリソースのページ |
+| `link: entity` | 値（ラベルなど） | `?entity` のリソースのページ |
+| `string: "?label（?year）"` | 変数を埋め込んだ文字列 | （`type` などによる） |
+| `href: "?url"` | 値 | `?url` の値 |
+| `type: directlink` | 値 | 値の URL（外部のページ） |
+| `type: image` | 値の URL の画像 | なし |
+| `collection: {…}` | 値 | その値で絞り込んだコレクション（[5.2](#52-値から絞り込んだコレクションへ)） |
 
-```yaml
-describe: RDF resource navigation system
-```
+おすすめは、SPARQL でラベルと IRI の両方を取り、`id` にラベル、`link` に IRI を書く方法です。ラベルのないリソースもある場合は、`display: localname` を使うか、SPARQL の `COALESCE` でラベルの代わりを作ります。
 
----
+### 4.5 同じリソースの行をまとめる（group_by）
 
-## 3.4 rdfstore
-
-RDF ストアおよび SPARQL エンドポイントに関する設定を指定します。
-
-データセットに応じて利用する RDF ストアを設定します。
-
----
-
-## 3.5 label
-
-検索などで利用するリソースのラベルプロパティを指定します。
-
-データセットで、
-
-```text
-rdfs:label
-```
-
-などをリソース名として使用する場合に設定します。
-
----
-
-## 3.6 priority
-
-複数の RDF type を持つリソースについて、Page の選択に利用する優先順位を指定します。
-
-例えば、
-
-```yaml
-priority:
-  - http://dbpedia.org/ontology/Mountain
-  - http://dbpedia.org/ontology/Place
-  - http://www.w3.org/2002/07/owl#Thing
-```
-
-のように指定します。
-
-複数の type を持つリソースでは、この優先順位を考慮して Page が選択されます。
-
----
-
-## 3.7 query_samples
-
-クエリサンプルを指定できます。
-
-トップページなどで、利用者が実行できるサンプルクエリを提示するために使用します。
-
----
-
-## 3.8 uri_samples
-
-URI サンプルを指定できます。
-
-KGraphNavi で表示できる代表的な URI を利用者に提示するために使用します。
-
----
-
-## 3.9 import
-
-CSV などの外部データを読み込むための設定です。
-
-隣接グラフなど、SPARQL 以外のデータを利用する Gadget から参照できます。
-
----
-
-# 4. Page
-
-## 4.1 Page の定義
-
-KGraphNavi では、Web ページを Page として定義します。
-
-Page は、表示する対象と、ページ内で使用する Gadget を指定します。
-
-Page には、大きく次の2種類があります。
-
-| Page の種類  | 用途                         |
-| --------- | -------------------------- |
-| リソースページ   | 1つの RDF エンティティを表示          |
-| コレクションページ | 同じ RDF クラスに属する複数のエンティティを表示 |
-
-Page は YAML で定義します。
-
-
-
-## 4.2 リソースページ
-
-リソースページは、1つの RDF エンティティを表示するためのページです。
-例えば、Mountain という RDF クラスに属するリソースを表示するページは、次のように定義できます。
+1つの山に国が2つあると、SPARQL の結果は国ごとに2行になります。`group_by` を書くと、同じリソースの行を1行にまとめ、国の列に2つの国を並べます。
 
 ```yaml
+    show:
+        type: htable
+        group_by: entity
+```
 
-- def: page
-  name: Mountain
-  type: http://dbpedia.org/ontology/Mountain
-  gadget:
-  - MountainH
-  - MountainV
+### 4.6 タブ
 
-## 4.2.2  name
-
-Page を識別する名前です。
+ガジェットが多いページは、タブで分けられます。選んだタブは URL（`tab=番号`）に残ります。
 
 ```yaml
-name: Mountain
+-   def: page
+    name: Mountain
+    type: dbo:Mountain
+    tabs:
+        - label: 概要
+          gadget: [MountainProfile, Abstract]
+        - label: 同じ山脈の山
+          gadget: [SameRange]
+        - label: すべてのデータ
+          gadget: [Out, In]
 ```
 
-Page 名は設定ファイル内で識別可能な名前にします。
+---
 
-## 4.2.3 type
+## 5. 画面をつなぐ
 
-リソースページでは、対象リソースの `rdf:type` を指定します。
+### 5.1 リソースからリソースへ
 
-Page が対象とする RDF type を指定します。
+`type: link` や `link:` の列は、リソースのページへのリンクになります。山のページの「山脈」をクリックすると山脈のページ、山脈のページの山をクリックすると山のページ、というように知識グラフをたどれます。
+
+### 5.2 値から絞り込んだコレクションへ
+
+列に `collection:` を書くと、その値で絞り込んだコレクションへのリンクになります。山の概要の「国」をクリックすると、その国の山のコレクションが開きます。
 
 ```yaml
-type: http://dbpedia.org/ontology/Mountain
+            - id: countryLabel
+              label: 国
+              collection:
+                class: dbo:Mountain     # 移り先: dbo:Mountain のコレクション
+                facet: country          # ファセット country で
+                value: country          # ?country の値で絞り込む
 ```
 
-例えば、
+移り先では、ファセット「国」にその国がチェックされた状態になります。条件を外したり、他の条件を加えたりできます。
 
-```sparql
-?resource a <http://dbpedia.org/ontology/Mountain>
-```
+### 5.3 一覧をコレクションとして開く
 
-`/resource?uri=...` にアクセスすると、対象リソースの `rdf:type` に応じて表示する Page が選択されます。
-
-##### ワイルドカード Page
-
-`type` に `*` を指定すると、特定の RDF type に限定されない Page を定義できます。
+ガジェットに `collection:` を書くと、見出しの横にボタンが出ます。押すと、その一覧をコレクションとして開き、ファセットでの絞り込みや統計が使えます。
 
 ```yaml
-- def: page
-  name: DefaultPage
-  type: "*"
-  gadget:
-    - Profile
+-   def: gadget
+    name: SameRange
+    title: 同じ山脈の山
+    collection:
+        var: entity               # 一覧の ?entity の列を要素にする
+        class: dbo:Mountain       # dbo:Mountain のコレクションのページで表示する
+        label: コレクションとして表示（絞り込み・統計）
+    get: …
 ```
 
-特定の type に対応する Page が存在しない場合のデフォルト Page として利用できます。
-
-### 4.2.4 gadget
-
-ページ内に表示する Gadget を指定します。
-
-```
-gadget:
-  - Profile
-  - Relations
-  - Network
-```
-
-指定された Gadget が上から順番に表示されます。
+`var` の代わりに `facet:` を書くと、表示中のリソースをそのファセットの値として絞り込んだコレクションへ移ります。山脈のページの「この山脈の山」は `facet: range` で、その山脈で絞り込んだ山のコレクションへ移ります。
 
 ---
 
-## 4.3 コレクションページ
+## 6. コレクションのページを作る
 
-コレクションページは、同じ RDF クラスに属する複数のエンティティを一覧表示するためのページです。
-
-コレクションページは `/collection` URL でアクセスします。
-
-例えば、DBpedia の Mountain クラスに属するエンティティの集合を表示する場合、
-
-```
-/collection?class=http://dbpedia.org/ontology/Mountain
-```
-
-にアクセスします。
-
-コレクションページは、次のように定義します。
-
-```
- def: page
-  name: MountainCollection
-  type: collection
-  class: http://dbpedia.org/ontology/Mountain
-  gadget:
-    - mountain_list
-
-```
-
-| 項目       | 必須  | 説明          |
-| -------- | --- | ----------- |
-| `def`    | ○   | `page`      |
-| `name`   | ○   | Page 名      |
-| `type`   | ○   | 対象 RDF type |
-| `gadget` | ○   | Gadget の一覧  |
-
-
-
-
-
----
-
-## 4.6 Gadget のパス指定
-
-Gadget 名にパスを指定することができます。
+### 6.1 クラスのコレクション
 
 ```yaml
-gadget:
-  - Profile
-  - Relations(country)
+-   def: page
+    name: MountainCollection
+    type: collection
+    class: dbo:Mountain
+    gadget:
+        - MountainList
 ```
 
-この場合、Gadget の実行前に指定されたパスを使って対象 URI を移動します。
+`/collection?class=dbo:Mountain` で開きます。`dbo:Mountain` の下位クラス（`rdfs:subClassOf`）のコレクションにも、このページが使われます。対応するページのないクラスは、組み込みのページ（名前と IRI の一覧）で表示します。
 
-例えば、
+### 6.2 SPARQL で定義したコレクション
 
-```text
-Relations(country)
-```
-
-では、`country` に対応する関係をたどった先を Gadget の対象 URI として使用します。
-
----
-
-# 5. Gadget
-
-## 5.1 Gadget の定義
-
-Gadget の基本形は次のとおりです。
+`query` に、要素を `?uri` で返す SELECT を書きます。`/collection?view=<ページ名>` で開きます。
 
 ```yaml
-- def: gadget
-  name: GadgetName
-
-  get:
-    ...
-
-  show:
-    ...
+-   def: page
+    name: AlpsMountains
+    type: collection
+    query: |
+        SELECT ?uri
+        WHERE {
+            ?uri a dbo:Mountain ;
+                 dct:subject dbc:Mountains_of_the_Alps .
+        }
+    gadget:
+        - MountainList
 ```
 
----
+### 6.3 コレクションのガジェット
 
-## 5.2 Gadget の項目
-
-| 項目       | 必須  | 説明       |
-| -------- | --- | -------- |
-| `def`    | ○   | `gadget` |
-| `name`   | ○   | Gadget 名 |
-| `get`    | ○   | データ取得方法  |
-| `show`   | ○   | 表示方法     |
-| `height` |     | 表示領域の高さ  |
-
----
-
-## 5.3 height
-
-Gadget の表示領域の高さを指定できます。
+コレクションのページのガジェットでは、SPARQL に `$collection` と書きます。その位置にコレクションの要素を `?entity` に束縛する副問い合わせが入ります。
 
 ```yaml
-- def: gadget
-  name: Network
-  height: 500
+-   def: gadget
+    name: MountainList
+    title: 山の一覧
+    get:
+        type: sparql
+        page_size: 50             # 50件ずつ表示し、ページ送りを付ける
+        src: |
+            SELECT ?entity ?label ?elevation ?country
+            WHERE {
+                $collection
+                OPTIONAL { ?entity rdfs:label ?label . FILTER(LANG(?label) = "en") }
+                OPTIONAL { ?entity dbo:elevation ?elevation }
+                OPTIONAL { ?entity dbo:country ?country }
+            }
+    show:
+        type: htable
+        group_by: entity
+        columns:
+            - id: label
+              link: entity
+            - id: elevation
+            - id: country
+              type: link
+              display: localname
 ```
 
-テーブルやネットワークなど、表示領域の大きさが重要な Gadget で利用します。
+コレクションのページでは、すべてのガジェットにコレクションが渡されます（`$collection` がなければ `WHERE {` の直後に入ります）。コレクションと関係のないガジェットは置かないでください。
 
----
+### 6.4 統計のグラフ
 
-## 5.4 get ― データ取得
-
-`get.type` によってデータの取得方法を指定します。
-
-代表的な取得方式は次のとおりです。
-
-| `type`       | 用途             |
-| ------------ | -------------- |
-| `sparql`     | SPARQL による取得   |
-| `list`       | 設定内に記述したデータ    |
-| csv2adjacent | CSV から隣接グラフを取得 |
-| `python`     | Python による拡張   |
-| `csv`        | CSV データ        |
-| `dbpedia`    | DBpedia 情報     |
-
----
-
-### 5.4.1 SPARQL
-
-#### 5.4.1.1 基本形
-
-SPARQL を使用する Gadget は次のように記述します。
+`show.type: chart` で、棒グラフ・円グラフを表示します。
 
 ```yaml
-get:
-  type: sparql
-  src: |
-    SELECT ?name
-    WHERE {
-      $uri <http://example.org/name> ?name
-    }
-```
-
----
-
-#### 5,4,1,2 `$uri`
-
-`$uri` は現在表示している RDF リソースの URI を表します。
-
-例えば対象 URI が、
-
-```text
-http://example.org/resource/123
-```
-
-の場合、
-
-```sparql
-$uri <http://example.org/name> ?name
-```
-
-は概念的に、
-
-```sparql
-<http://example.org/resource/123>
-    <http://example.org/name>
-    ?name
-```
-
-として実行されます。
-
----
-
-#### 5.4.1.3 SPARQL の例
-
-```yaml
-get:
-  type: sparql
-  src: |
-    PREFIX dbo: <http://dbpedia.org/ontology/>
-    PREFIX dbp: <http://dbpedia.org/property/>
-
-    SELECT ?country ?elevation ?thumbnail WHERE {
-      $uri dbp:country ?country ;
-           dbp:prominenceM ?elevation ;
-           dbo:thumbnail ?thumbnail .
-    }
-```
-
-この例では、
-
-- `country`
-
-- `elevation`
-
-- `thumbnail`
-
-の3つの値を取得します。
-
----
-
-### 5.4.2 list
-
-設定ファイル内に記述したデータを取得する場合に使用します。
-
-```yaml
-get:
-  type: list
-  ...
-```
-
-利用するデータ形式は Gadget の目的に応じて指定します。
-
----
-
-# 5.4.3 csv2adjacent
-
-CSV によって表現された関係データから隣接グラフを作成する場合に利用します。
-
-設定では、CSV データのどの項目をエッジとして扱うか、方向をどうするかなどを指定します。
-
----
-
-# 5.4.5 python / csv / dbpedia
-
-データ取得処理を拡張するために、`python`、`csv`、`dbpedia` などの取得方式を利用できます。
-
-具体的なパラメータは、それぞれのデータ取得方式の仕様に従います。
-
----
-
-## 5.5 filter
-
-検索条件などによってデータを絞り込むために使用します。
-
-例えば、ページ設定にフィルタを関連付けることができます。
-
-```yaml
-filter:
-  - label: 種類
-    predicate: http://example.org/type
-    type: select
-    select: A,B,C
-```
-
----
-
-## 5.5 show ― 表示方法
-
-`show.type` によって取得したデータの表示方法を指定します。
-
-代表的な表示方式は次のとおりです。
-
-| `type`            | 用途                   |
-| ----------------- | -------------------- |
-| `vtable`          | 1レコードを属性・値の縦型テーブルで表示 |
-| `htable`          | 複数レコードを横型テーブルで表示     |
-| `network`         | ネットワーク表示             |
-| `adjacentnetwork` | 隣接グラフ表示              |
-| `chart`           | チャート表示               |
-| `filter`          | フィルタ表示               |
-
----
-
-### 5.5.1 columns
-
-`htable` や `vtable` では `columns` によって表示する項目と表示方法を指定します。
-
-基本形は次のとおりです。
-
-```yaml
-columns:
-  - id: country
-    type: link
-    label: Country
-
-  - id: elevation
-    type: literal
-    label: Elevation
-
-  - id: thumbnail
-    type: image
-    label: Thumbnail
-```
-
----
-
-#### 5.5.1.1 id
-
-`id` は取得結果の変数名です。
-
-例えば SPARQL が、
-
-```sparql
-SELECT ?country
-```
-
-を実行する場合、
-
-```yaml
-- id: country
-```
-
-と指定します。
-
----
-
-#### 5.5.1.2 label
-
-画面に表示する列名です。
-
-```yaml
-- id: country
-  label: Country
-```
-
-`label` を省略した場合は `id` が使用されます。
-
----
-
-#### 5.5.1.3 width
-
-列の幅を指定します。
-
-```yaml
-- id: country
-  width: 200
-```
-
-`htable` では各列の幅として使用します。
-
----
-
-#### 5.5.1.4 type
-
-値の表示形式を指定します。
-
-主な値は次のとおりです。
-
-| `type`          | 説明                     |
-| --------------- | ---------------------- |
-| `literal`       | 通常の値として表示              |
-| `link`          | KGraphNavi 内部リソースへのリンク |
-| `external-link` | 外部 URI へのリンク           |
-| `image`         | 画像として表示                |
-
----
-
-### 5.5.2 literal
-
-通常の値として表示します。
-
-```yaml
-- id: elevation
-  type: literal
-```
-
----
-
-### 5.5.3 link
-
-KGraphNavi 内部のリソースへのリンクとして表示します。
-
-```yaml
-- id: country
-  type: link
-  href: "?country"
-```
-
-`link` では、表示文字列とリンク先を分離して指定できます。
-
----
-
-### 5.5.4 external-link
-
-外部データベースなどの URI に直接移動するリンクです。
-
-```yaml
-- id: country
-  type: external-link
-  href: "?country"
-```
-
-例えば DBpedia の URI を外部サイトへのリンクとして使用できます。
-
----
-
-# 5.5.5 表示文字列とリンク先
-
-KGraphNavi では、表示する文字列とリンク先を独立して指定できます。
-
-例えば SPARQL で、
-
-```sparql
-SELECT ?label ?link
-WHERE {
-    ...
-}
-```
-
-として、
-
-```yaml
-columns:
-  - id: label
-    type: link
-    string: "?label"
-    href: "?link"
-```
-
-とします。
-
-この場合、
-
-```text
-string → 表示文字列
-href   → リンク先
-```
-
-となります。
-
-例えば、
-
-```text
-label = France
-link  = http://dbpedia.org/resource/France
-```
-
-なら、
-
-```text
-表示: France
-リンク先: http://dbpedia.org/resource/France
-```
-
-となります。
-
----
-
-### 5.5.6 string
-
-`string` は表示文字列を明示的に指定します。
-
-```yaml
-- id: country
-  type: link
-  string: "?label"
-  href: "?link"
-```
-
----
-
-## 5.5.6.1 変数参照
-
-`string` の中では取得結果の変数を参照できます。
-
-```yaml
-string: "?label"
-```
-
-複数の文字列を組み合わせることもできます。
-
-```yaml
-string: "Country: ?label"
-```
-
-変数には、
-
-```text
-?name
-```
-
-または、
-
-```text
-?{name}
-```
-
-の形式を使用できます。
-
----
-
-### 5.5.7 href
-
-`href` はリンク先を明示します。
-
-```yaml
-href: "?link"
-```
-
-変数を使用してリンク先を構成できます。
-
-```yaml
-href: "/resource?uri=?uri"
-```
-
-例えば、
-
-```yaml
-- id: label
-  type: link
-  string: "?label"
-  href: "?uri"
-```
-
-とすると、
-
-```text
-表示文字列 = label
-リンク先   = uri
-```
-
-となります。
-
----
-
-### 5.5.8 display
-
-`display` は取得した値の表示方法を指定します。
-
-現在利用できる代表的な指定は、
-
-```yaml
-display: localname
-```
-
-です。
-
----
-
-## 5.5.8.1 localname
-
-RDF URI のローカル名を表示します。
-
-例えば、
-
-```text
-http://dbpedia.org/resource/France
-```
-
-を、
-
-```text
-France
-```
-
-として表示できます。
-
-設定例：
-
-```yaml
-- id: country
-  type: link
-  display: localname
-  href: "?country"
-```
-
-ここで、
-
-```text
-display
-```
-
-は表示方法を決めるものであり、
-
-```text
-href
-```
-
-はリンク先を決めるものです。
-
-したがって、
-
-```yaml
-- id: country
-  type: link
-  display: localname
-  href: "?country"
-```
-
-では、
-
-```text
-表示文字列: France
-リンク先:    http://dbpedia.org/resource/France
-```
-
-という構成になります。
-
----
-
-### 5.5.9 image
-
-画像を表示する場合は、
-
-```yaml
-- id: thumbnail
-  type: image
-  width: 120
-```
-
-と指定します。
-
-SPARQL の結果には画像 URI を返します。
-
-```sparql
-SELECT ?thumbnail
-WHERE {
-    ...
-}
-```
-
-画像の HTML タグを SPARQL の結果に埋め込むのではなく、画像 URI をデータとして返し、表示側で画像として扱います。
-
----
-
-### 5.5.10 vtable
-
-`vtable` は1レコードを属性名と属性値の2列で表示します。
-
-例えば、
-
-```yaml
-show:
-  type: vtable
-
-  columns:
-    - id: country
-      type: link
-      display: localname
-      href: "?country"
-
-    - id: elevation
-      type: literal
-
-    - id: thumbnail
-      type: image
-```
-
-画面上では概念的に、
-
-| 属性        | 値       |
-| --------- | ------- |
-| country   | France  |
-| elevation | 4805.59 |
-| thumbnail | 画像      |
-
-のように表示されます。
-
----
-
-#### 5.5.10.1 vtable の幅
-
-`vtable` では属性列と値列の幅をそれぞれ指定できます。
-
-attribute_widthは属性名を表示する列の幅、value_widthは属性値を表示する列の幅です。attribute_width`と`value_width`は`vtable` 全体に対する設定です。
-
-```yaml
-show:
-  type: vtable
-  attribute_width: 150
-  value_width: 500
-```
-
----
-
-### 5.5.11 htable
-
-`htable` は複数レコードを横方向の表として表示します。
-
-```yaml
-show:
-  type: htable
-
-  columns:
-    - id: country
-      type: link
-      display: localname
-      href: "?country"
-      label: Country
-      width: 200
-
-    - id: elevation
-      type: literal
-      label: Elevation
-      width: 100
-
-    - id: thumbnail
-      type: image
-      label: Thumbnail
-      width: 120
-```
-
----
-
-#### 5.5.11.1 htable の幅指定
-
-htableでは各列について `width` を指定します。
-
-```yaml
-columns:
-  - id: country
-    width: 200
-
-  - id: elevation
-    width: 100
-```
-
-### 5.5.12 network
-
-ネットワークを表示する Gadget では、ノードとエッジを定義します。
-
-例えば、
-
-```yaml
-show:
-  type: network
-
-  node:
-    - id: Subject
-    - id: Object
-
-  edge:
-    - Subject, Object
-```
-
-のように指定します。
-
----
-
-### 5.5.13 adjacentnetwork
-
-隣接関係をネットワークとして表示します。
-
-CSV などの外部データから隣接関係を構築する場合には、`csv2adjacent` と組み合わせて利用します。
-
----
-
-# 5,5,14 chart
-
-集計結果などをチャートとして表示するための Gadget です。
-
-具体的なチャートの種類やデータ形式は、利用する Gadget の設定に従います。
-
----
-
-### 5.5.15 filter
-
-データを絞り込むための表示を提供します。
-
-例えば、
-
-```yaml
-filter:
-  - label: 訴訟類型
-    predicate: http://example.org/caseType
-    type: select
-    select: 行政訴訟,民事訴訟,刑事訴訟
-```
-
-のように設定します。
-
----
-
-# 6. 設定例
-
-## 6.1 最小構成
-
-```yaml
-title: Example KGraphNavi
-
-describe: Example RDF browser
-
-- def: page
-  name: ResourcePage
-  type: http://example.org/Resource
-  gadget:
-    - Profile
-
-- def: gadget
-  name: Profile
-
-  get:
-    type: sparql
-    src: |
-      SELECT ?name
-      WHERE {
-        $uri <http://example.org/name> ?name
-      }
-
-  show:
-    type: vtable
-
-    columns:
-      - id: name
-        label: 名前
-        type: literal
-```
-
----
-
-## 6.2 複数の Gadget
-
-```yaml
-- def: page
-  name: ResourcePage
-  type: http://example.org/Resource
-
-  gadget:
-    - Profile
-    - Relations
-    - Network
-```
-
-この場合、3つの Gadget が同じ Page に配置されます。
-
----
-
-## 6.3 テーブル表示
-
-```yaml
-- def: gadget
-  name: Relations
-
-  get:
-    type: sparql
-    src: |
-      SELECT ?name ?type
-      WHERE {
-        ?resource <http://example.org/name> ?name .
-        ?resource a ?type .
-      }
-
-  show:
-    type: htable
-
-    columns:
-      - id: name
-        label: 名前
-        type: literal
-
-      - id: type
-        label: 種類
-        type: literal
-```
-
----
-
-## 6.4 表示値とリンク先を分離した例
-
-SPARQL で表示用ラベルとリンク用 URI を別々に取得します。
-
-```yaml
-- def: gadget
-  name: RelatedResources
-
-  get:
-    type: sparql
-    src: |
-      SELECT ?label ?link
-      WHERE {
-        ?resource <http://example.org/label> ?label .
-        ?resource <http://example.org/uri> ?link .
-      }
-
-  show:
-    type: htable
-
-    columns:
-      - id: label
-        type: link
-        string: "?label"
-        href: "?link"
-        label: 名前
-```
-
-この構成では、表示文字列とリンク先が明確に分離されています。
-
----
-
-## 6.5 URI のローカル名を表示する例
-
-```yaml
-- def: gadget
-  name: Countries
-
-  get:
-    type: sparql
-    src: |
-      SELECT ?country
-      WHERE {
-        $uri <http://example.org/country> ?country
-      }
-
-  show:
-    type: htable
-
-    columns:
-      - id: country
-        type: link
+-   def: gadget
+    name: CountryPie
+    title: 国別の山の数（上位12か国）
+    get:
+        type: sparql
+        src: |
+            SELECT ?country (COUNT(DISTINCT ?entity) AS ?count)
+            WHERE {
+                $collection
+                ?entity dbo:country ?country .
+            }
+            GROUP BY ?country
+            ORDER BY DESC(?count)
+            LIMIT 12
+    show:
+        type: chart
+        chart: pie                # bar（棒グラフ）/ pie（円グラフ）
+        labels: country           # 項目名の変数
+        dataset: count            # 値の変数
         display: localname
-        href: "?country"
-        label: Country
 ```
 
-例えば、
+### 6.5 クラスのページでインスタンスを集計する
 
-```text
-http://dbpedia.org/resource/France
-```
-
-を、
-
-```text
-France
-```
-
-として表示します。
-
----
-
-## 6.6 画像表示
+クラス自身もリソースです（`/resource?uri=http://dbpedia.org/ontology/Mountain`）。クラスのページに `collection: instances` を書くと、そのクラスのインスタンスをコレクションとして、コレクションのガジェットを使えます。
 
 ```yaml
-- def: gadget
-  name: Images
-
-  get:
-    type: sparql
-    src: |
-      SELECT ?thumbnail
-      WHERE {
-        $uri <http://example.org/thumbnail> ?thumbnail
-      }
-
-  show:
-    type: htable
-
-    columns:
-      - id: thumbnail
-        type: image
-        label: 画像
-        width: 120
+-   def: page
+    name: Class
+    type: owl:Class
+    collection: instances
+    tabs:
+        - label: インスタンス
+          gadget: [ClassInstances]
+        - label: 国別
+          gadget: [CountryBar]
 ```
 
 ---
 
-## 6.7 Mountain の完全な例
+## 7. ファセットで絞り込む
+
+ファセットは `get.type: facet` と `show.type: facet` のガジェットです。コレクションのページの `sidebar` に並べると、左の列に表示されます。
 
 ```yaml
-- def: page
-  name: Mountain
-  type: http://dbpedia.org/ontology/Mountain
-
-  gadget:
-    - MountainInfo
-    - MountainH
-
-- def: gadget
-  name: MountainInfo
-
-  get:
-    type: sparql
-    src: |
-      PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-
-      SELECT ?label
-      WHERE {
-        $uri rdfs:label ?label
-      }
-
-  show:
-    type: vtable
-
-    attribute_width: 150
-    value_width: 500
-
-    columns:
-      - id: label
-        label: Name
-        type: literal
-
-- def: gadget
-  name: MountainH
-
-  get:
-    type: sparql
-    src: |
-      PREFIX dbo: <http://dbpedia.org/ontology/>
-      PREFIX dbp: <http://dbpedia.org/property/>
-
-      SELECT ?country ?elevation ?thumbnail
-      WHERE {
-        $uri dbp:country ?country ;
-             dbp:prominenceM ?elevation ;
-             dbo:thumbnail ?thumbnail .
-      }
-
-  show:
-    type: htable
-
-    columns:
-      - id: country
-        type: link
-        display: localname
-        href: "?country"
-        label: Country
-        width: 200
-
-      - id: elevation
-        type: literal
-        label: Elevation
-        width: 100
-
-      - id: thumbnail
-        type: image
-        label: Thumbnail
-        width: 120
+-   def: page
+    name: AlpsMountains
+    type: collection
+    query: …
+    sidebar: [facet_country, facet_range, facet_elevation, facet_first_ascent]
+    tabs:
+        - label: 一覧
+          gadget: [MountainList]
+        - label: 国別
+          gadget: [CountryPie]
 ```
 
----
+ページの先頭には、件数と現在の条件が表示されます。条件の ✕ で、その条件を外せます。
 
-## 6.7 設定ファイルの設計
-
-設定ファイルでは、次の役割を分けて記述することを推奨します。
-
-```text
-Page
-  └── どのリソースをどの画面で表示するか
-
-Gadget
-  ├── get
-  │    └── 何を取得するか
-  │
-  └── show
-       └── どう表示するか
-```
-
-さらに `columns` では、
-
-```text
-id
-  ↓
-どの値か
-
-string
-  ↓
-何を表示するか
-
-display
-  ↓
-どのような形で表示するか
-
-href
-  ↓
-どこへリンクするか
-
-type
-  ↓
-どの表示形式にするか
-```
-
-を分離して指定します。
-
----
-
-## 6.8 表示値とリンク先の設計
-
-例えば、
-
-```sparql
-SELECT ?label ?link
-WHERE {
-    ...
-}
-```
-
-というデータを取得した場合、
+### 7.1 値のファセット
 
 ```yaml
-- id: label
-  type: link
-  string: "?label"
-  href: "?link"
+-   def: gadget
+    name: facet_country
+    height: 240                   # 候補のリストの高さ
+    get:
+        type: facet
+        name: country             # URL では f.country=<値>
+        label: 国
+        predicate: dbo:country
+        value_type: iri
+        lang: en                  # 候補のラベルの言語
+        limit: 30                 # 件数の多い順に30件
+        match: selectable         # 「いずれか」「すべて」を画面で切り替える
+    show:
+        type: facet
 ```
 
-とすることで、
+複数の値を選ぶと、既定では「いずれかを持つ」（OR）になります。`match: selectable` にすると画面で「すべてを持つ」（AND）に切り替えられます。スイスとイタリアを選んで「すべて」にすると、国境の山（マッターホルンなど）だけになります。
 
-```text
-取得データ
-    │
-    ├── label ──→ 表示文字列
-    │
-    └── link  ──→ リンク先
-```
+候補が多いファセットには `search: true` を書くと、候補をラベルで検索する欄が出ます（サンプルの「山脈」）。
 
-という明確な構造になります。
+### 7.2 範囲のファセット
 
-URI の一部を表示したい場合には、
+数値や日付は `kind: range` で範囲を指定して絞り込みます。値の分布が棒グラフで表示され、下限・上限を入力するか、棒をクリックして絞り込みます。
 
 ```yaml
-display: localname
+-   def: gadget
+    name: facet_elevation
+    get:
+        type: facet
+        kind: range
+        name: elevation           # URL では f.elevation.min / f.elevation.max
+        label: 標高（m）
+        predicate: dbo:elevation
+        datatype: double          # integer / decimal / double / date / dateTime / gYear
+        bins: 20
+    show:
+        type: facet
 ```
 
-を追加します。
+各ファセットの候補の件数は、他のファセットの条件で絞り込んだコレクションで数えます。詳しくは [コレクションとファセット](collection.md#ファセット) を参照してください。
+
+---
+
+## 8. 知識グラフ全体のページ
+
+`type: graph` のページは `/graph` で表示します。特定のリソースやコレクションに依存しない集計を置きます。
 
 ```yaml
-- id: label
-  type: link
-  display: localname
-  href: "?link"
+-   def: page
+    name: Overview
+    type: graph
+    gadget:
+        - Links
+        - RangeRanking
+        - NaturalPlaceTree
 ```
 
----
+### 8.1 固定の一覧（get: list）
 
-## 6.9  JavaScript 側のセル構造
-
-テーブル表示では、セルは単純な文字列ではなく、表示情報を持つ構造として扱われます。
-
-通常の値：
-
-```javascript
-{
-    "value": "4805.59",
-    "type": "literal"
-}
-```
-
-リンク：
-
-```javascript
-{
-    "value": "France",
-    "type": "link",
-    "href": "/resource?uri=http%3A%2F%2Fdbpedia.org%2Fresource%2FFrance"
-}
-```
-
-外部リンク：
-
-```javascript
-{
-    "value": "France",
-    "type": "external-link",
-    "href": "http://dbpedia.org/resource/France"
-}
-```
-
-画像：
-
-```javascript
-{
-    "value": "http://example.org/image.jpg",
-    "type": "image"
-}
-```
-
-ここで、
-
-- `value` は表示文字列
-
-- `type` は表示形式
-
-- `href` はリンク先
-
-です。
-
----
-
-## 6.10 表示処理
-
-テーブル表示では概ね次の処理が行われます。
-
-```text
-SPARQL 結果
-    ↓
-get_raw_value()
-    ↓
-get_value() / get_value1()
-    ↓
-get_item_data()
-    ↓
-get_record_cells()
-    ↓
-show_vertical_table()
-または
-show_horizontal_table()
-    ↓
-make_kvtable()
-または
-make_table()
-    ↓
-make_jsgrid()
-    ↓
-HTML + JavaScript
-```
-
-この構造により、データ取得と表示処理を分離しています。
-
----
-
-# 7. トラブルシューティング
-
-## 7.1 Page が選択されない
-
-次を確認します。
-
-1. 対象リソースの RDF type
-
-2. Page の `type`
-
-3. `priority`
-
-4. ワイルドカード Page
-
-特定の type に対応する Page がない場合は、
+よく使う画面へのリンク集などは、`get.type: list` で設定ファイルに直接書けます。
 
 ```yaml
-type: "*"
+-   def: gadget
+    name: Links
+    get:
+        type: list
+        header: name, url
+        src: |
+            アルプスの山,/collection?view=AlpsMountains
+            山（dbo:Mountain）,/collection?class=dbo:Mountain
+    show:
+        type: htable
+        columns:
+            - id: name
+              type: link
+              href: "?url"
 ```
 
-の Page を利用できます。
+### 8.2 階層の表示（tree）
 
----
-
-## 7.2 Gadget が表示されない
-
-次を確認します。
-
-1. Page に Gadget 名が指定されているか
-
-2. Gadget 定義が存在するか
-
-3. `get` の設定が正しいか
-
-4. SPARQL クエリが正しいか
-
-5. `show.type` が正しいか
-
----
-
-## 7.3 SPARQL の結果が空
-
-SPARQL エンドポイントでクエリを単独実行して確認します。
-
-特に、
-
-```text
-$uri
-```
-
-が対象 URI に置き換わったときに、期待する SPARQL になっているか確認します。
-
----
-
-## 7.4 columns の値が表示されない
-
-`columns[].id` は SPARQL の取得変数と一致している必要があります。
-
-例えば、
-
-```sparql
-SELECT ?name
-```
-
-に対して、
+クラス階層のように親子関係のある行は、`tree` で親の下に子を字下げして表示できます。▾／▸ で折りたためます。
 
 ```yaml
-columns:
-  - id: title
+-   def: gadget
+    name: NaturalPlaceTree
+    get:
+        type: sparql
+        src: |
+            SELECT DISTINCT ?class ?parent ?label
+            WHERE {
+                ?class rdfs:subClassOf* dbo:NaturalPlace .
+                OPTIONAL {
+                    ?class rdfs:subClassOf ?parent .
+                    ?parent rdfs:subClassOf* dbo:NaturalPlace .
+                }
+                OPTIONAL { ?class rdfs:label ?label . FILTER(LANG(?label) = "en") }
+            }
+    show:
+        type: htable
+        group_by: class
+        tree:
+            node: class           # 行の識別子
+            parent: parent        # 親の識別子
+            column: label         # 字下げする列
+            strip_parent: false
+        columns:
+            - id: label
+              link: class
 ```
 
-とすると、`title` は取得されていないため値を表示できません。
+親を、識別子の文字列（`parent_regex`）や、値の包含関係（`parent_by: contains`）から決めることもできます（[リファレンス](config.md#tree親子の階層表示)）。
 
 ---
 
-## 7.5 値は表示されるがリンクにならない
+## 9. トップ画面
 
-生成されたセルに `href` が設定されているか確認します。
-
-リンクセルでは概念的に、
-
-```javascript
-{
-    value: "...",
-    type: "link",
-    href: "..."
-}
-```
-
-となっている必要があります。
-
----
-
-## 7.6 URI がそのまま表示される
-
-例えば、
-
-```text
-http://dbpedia.org/resource/France
-```
-
-ではなく、
-
-```text
-France
-```
-
-と表示したい場合は、
+トップ画面（`/`）には、`title`・`describe` と、検索欄、`sample` に書いたサンプルへのリンクが出ます。
 
 ```yaml
-display: localname
+-   title: DBpedia
+-   describe: DBpedia の山・山脈・国・人物を例に、KGraphNavi の主な機能を試すためのサンプルです。
+-   sample:
+        search:
+            - Matterhorn
+        resource:
+            - http://dbpedia.org/resource/Matterhorn,マッターホルン（山）
+        collection:
+            - AlpsMountains,アルプスの山（ページ名を指定）
+            - http://dbpedia.org/ontology/Mountain,山（クラス dbo:Mountain）
 ```
 
-を指定します。
+検索欄（`/search`）は、ラベル（設定の `label`、既定 `rdfs:label`）に語句を含む（部分一致）、または語句と一致する（完全一致）リソースを探します。大きな知識グラフでは部分一致の検索は時間がかかります。
 
 ---
 
-## 7.7 画像が表示されない
+## 10. 運用
 
-次を確認します。
+### 10.1 手元の環境だけの設定（local.yaml）
+
+エンドポイントの URL や、配信するファイルのフォルダなど、環境ごとに違う値は、設定ファイルと同じフォルダの `local.yaml` に書きます。自動で読み込まれ、設定ファイルの値を上書きします。
 
 ```yaml
-type: image
+# config/local.yaml
+- sparql_endpoint: "http://localhost:8891/sparql"
+- data_dir: ~/caselaw/html
 ```
 
-が指定されているか確認します。
+### 10.2 設定ファイルの分割（import）
 
-また、生成された JavaScript で、
-
-```javascript
-{
-    value: "http://...",
-    type: "image"
-}
-```
-
-となっているか確認します。
-
-画像 URI がブラウザからアクセス可能であることも確認してください。
-
----
-
-## 7.8 Gadget の表示結果が `None` になる
-
-表示関数が HTML 文字列を `return` しているか確認します。
-
-例えば、
-
-```python
-return make_kvtable(...)
-```
-
-のような戻り値が必要です。
-
----
-
-## 7.9 JavaScript のエラー
-
-テーブルなどの JavaScript を利用する表示方式では、ブラウザの開発者ツールを確認します。
-
-特に、
-
-```javascript
-const datalist = [...]
-```
-
-と、
-
-```javascript
-fields: [...]
-```
-
-が正しく生成されているか確認します。
-
----
-
-# 7.10 デバッグログ
-
-データ取得と表示は別の段階で確認できます。
-
-### SPARQL
-
-```text
-SPARQL returned N rows
-```
-
-取得した行数を確認します。
-
-### Gadget.extract
-
-```text
-gadget extract:
-```
-
-取得結果を確認します。
-
-### Gadget.show
-
-```text
-Gadget.show: type=... columns=...
-```
-
-`show` と `columns` が期待どおり解釈されているか確認します。
-
-### show_vertical_table / show_horizontal_table
-
-表示用の `data` を確認します。
-
-### make_jsgrid
-
-次を確認します。
-
-```text
-data
-header
-columns
-```
-
-### 生成された JavaScript
-
-```javascript
-const datalist = [...]
-```
-
-と、
-
-```javascript
-fields: [...]
-```
-
-を確認します。
-
----
-
-# 8. 設定リファレンス
-
-## 8.1 トップレベル設定
-
-| 項目              | 説明             |
-| --------------- | -------------- |
-| `title`         | アプリケーションタイトル   |
-| `describe`      | アプリケーション説明     |
-| `rdfstore`      | RDF ストア設定      |
-| `label`         | 検索に利用するラベル     |
-| `priority`      | RDF type の優先順位 |
-| `query_samples` | クエリサンプル        |
-| `uri_samples`   | URI サンプル       |
-| `import`        | 外部データ          |
-
----
-
-## 8.2 Page
-
-| 項目       | 必須  | 説明          |
-| -------- | --- | ----------- |
-| `def`    | ○   | `page`      |
-| `name`   | ○   | Page 名      |
-| `type`   | ○   | 対象 RDF type |
-| `gadget` | ○   | Gadget 一覧   |
-
----
-
-## 8.3 Gadget
-
-| 項目       | 必須  | 説明       |
-| -------- | --- | -------- |
-| `def`    | ○   | `gadget` |
-| `name`   | ○   | Gadget 名 |
-| `get`    | ○   | データ取得方法  |
-| `show`   | ○   | 表示方法     |
-| `height` |     | 表示領域の高さ  |
-
----
-
-## 8.4 get
-
-| `type`         | 説明           |
-| -------------- | ------------ |
-| `sparql`       | SPARQL による取得 |
-| `list`         | 設定内データ       |
-| `filter`       | フィルタ用データ     |
-| `csv2adjacent` | 隣接グラフ用データ    |
-| `python`       | Python 拡張    |
-| `csv`          | CSV データ      |
-| `dbpedia`      | DBpedia 情報   |
-
----
-
-## 8.5 show
-
-| `type`            | 説明            |
-| ----------------- | ------------- |
-| `vtable`          | 属性・値の縦型テーブル   |
-| `htable`          | 複数レコードの横型テーブル |
-| `network`         | ネットワーク        |
-| `adjacentnetwork` | 隣接グラフ         |
-| `chart`           | チャート          |
-| `filter`          | フィルタ          |
-
----
-
-## 8.6 columns
-
-| 項目        | 説明       |
-| --------- | -------- |
-| `id`      | 取得結果の変数名 |
-| `label`   | 表示する列名   |
-| `width`   | 列幅       |
-| `type`    | 表示形式     |
-| `string`  | 表示文字列    |
-| `href`    | リンク先     |
-| `display` | 表示値の変換   |
-
----
-
-## 8.7 columns.type
-
-| 値               | 説明               |
-| --------------- | ---------------- |
-| `literal`       | 通常の値             |
-| `link`          | KGraphNavi 内部リンク |
-| `external-link` | 外部リンク            |
-| `image`         | 画像               |
-
----
-
-## 8.8 columns.display
-
-| 値           | 説明            |
-| ----------- | ------------- |
-| `localname` | URI のローカル名を表示 |
-
----
-
-## 8.9 vtable 固有設定
-
-| 項目                | 説明     |
-| ----------------- | ------ |
-| `attribute_width` | 属性列の幅  |
-| `value_width`     | 属性値列の幅 |
-
----
-
-# 9. 推奨する設定方法
-
-新しいデータセットを KGraphNavi に追加する場合は、次の順序で設定すると分かりやすくなります。
-
-1. SPARQL エンドポイントが利用できることを確認する。
-
-2. 表示対象となる RDF type を決める。
-
-3. type ごとに Page を定義する。
-
-4. Page に必要な Gadget を定義する。
-
-5. Gadget の `get` で必要なデータを取得する。
-
-6. `show` で表示形式を指定する。
-
-7. `columns` で表示項目を定義する。
-
-8. 必要に応じて `string` で表示文字列を指定する。
-
-9. 必要に応じて `href` でリンク先を指定する。
-
-10. URI の短縮表示が必要なら `display: localname` を指定する。
-
-11. `vtable` なら `attribute_width` / `value_width` を設定する。
-
-12. ブラウザで生成された表示を確認する。
-
-特にリンクを扱う場合は、
+設定が大きくなったら、ファセットやガジェットを別のファイルに分け、`import` で読み込めます。
 
 ```yaml
-string: "?label"
-href: "?link"
+-   import: [facets.yaml, gadgets.yaml]
 ```
 
-のように、**表示文字列とリンク先を別々の変数にする設計**を推奨します。
+### 10.3 ファイルの配信
 
----
-
-# 10. 用語
-
-### RDF
-
-リソースを URI で識別し、リソース間の関係をトリプルとして表現するデータモデルです。
-
-### URI
-
-RDF リソースを識別するための識別子です。
-
-### RDF type
-
-RDF リソースがどのクラスに属するかを表します。
-
-### SPARQL
-
-RDF データを検索するためのクエリ言語です。
-
-### SPARQL エンドポイント
-
-SPARQL クエリを受け付け、RDF データを検索するサービスです。
-
-### Page
-
-RDF リソースを表示するための画面定義です。
-
-### Gadget
-
-Page を構成する表示部品です。
-
-### get
-
-Gadget が表示するデータを取得する方法です。
-
-### show
-
-取得したデータを表示する方法です。
-
-### columns
-
-テーブルなどで表示する項目と表示方法を定義します。
-
----
-
-# 11. まとめ
-
-KGraphNavi の設定は、
-
-```text
-Page
- └── Gadget
-      ├── get
-      │    └── データ取得
-      │
-      └── show
-           └── データ表示
-                └── columns
-```
-
-という構造で考えることができます。
-
-テーブル表示では、特に次の4つを分離して指定することが重要です。
-
-```text
-id
- ↓
-取得する値
-
-string
- ↓
-表示する文字列
-
-display
- ↓
-表示文字列の変換方法
-
-href
- ↓
-リンク先
-```
-
-例えば、
+文書の HTML などを KGraphNavi から配信するときは、`data_dir`（`/data/<path>`）や `data_dirs`（`/data/<名前>/<path>`）にフォルダを書きます。ガジェットでは、`href` でそのファイルへのリンクを作ります。
 
 ```yaml
-- id: country
-  type: link
-  display: localname
-  string: "?label"
-  href: "?link"
+            - id: id
+              label: 文書
+              type: link
+              string: "HTML文書"
+              href: "/data/?year/?id.html"
 ```
 
-とすれば、
+### 10.4 ログ
 
-- `?label` を表示文字列として使用
-
-- `display: localname` によって URI のローカル名を表示することも可能
-
-- `?link` をリンク先として使用
-
-- `type: link` によって KGraphNavi 内部リソースへのリンクとして表示
-
-というように、それぞれの役割を明確に指定できます。
-
-`vtable` では、
-
-```yaml
-attribute_width: 150
-value_width: 500
-```
-
-によって属性列と値列を独立して設定できます。
-
-この Page / Gadget / get / show / columns という構造を利用することで、データセットごとに異なる RDF データの表示画面を設定ファイルから構成できます。
-
-```markdown
-
-```
-
-この構造により、データセット固有の表示内容を、KGraphNavi 本体のプログラムを変更せずに設定ファイルから構成できます。
+`-d INFO` で、実行した SPARQL（`extract_sparql: final query=…`）がログに出ます。`-d DEBUG` では、問い合わせの結果なども出ます。画面の表示がおかしいときは、まずログの SPARQL をエンドポイントで直接実行してみてください。
 
 ---
+
+## 11. トラブルシューティング
+
+### ページが選ばれない（`type: '*'` のページになる、エラーになる）
+
+- リソースに `rdf:type` があるか確かめてください。`rdf:type` のないリソースはエラーになります。
+- `rdf:type` が複数あるときは、`priority` にページのクラスを **完全な IRI** で書いてください。
+- ページの `type` の接頭辞が `prefixes` に定義されているか確かめてください。
+
+### ガジェットが空になる
+
+- ログの SPARQL をエンドポイントで直接実行し、結果があるか確かめてください。
+- `FILTER(LANG(?label) = "en")` のような言語の条件で、行がなくなっていないか確かめてください（`OPTIONAL` の中に入れると、ラベルがなくても行は残ります）。
+- `$uri` の綴りを確かめてください。`$uri`・`$collection` 以外の `$名前` は、コレクションのページで同じ名前の URL パラメータがあるときだけ置き換わり、それ以外はそのまま残って SPARQL のエラーになります。
+
+### 列の値が表示されない
+
+- `columns` の `id` が SPARQL の変数名（`?` を除いた名前）と一致しているか確かめてください。
+- `vtable` は最初の1行だけを表示します。
+
+### リンクにならない
+
+- `type: link` / `link:` / `href:` / `collection:` のどれかが必要です。
+- `link: <変数>` は、その変数に値がない行ではリンクになりません。
+
+### IRI がそのまま表示される
+
+- `display: localname` を使うか、SPARQL でラベルを取り、`link:` でリンク先を指定してください。
+
+### 画像が表示されない
+
+- `type: image` の列の値が画像の URL になっているか確かめてください（HTML のタグではなく URL を返します）。
+
+### コレクションのページで行が多すぎる・遅い
+
+- `$collection` を使わないガジェットを置いていないか確かめてください（すべてのガジェットにコレクションが入ります）。
+- 一覧には `page_size` を指定してください。
+- 候補の多いファセットには `search: true` と `top_when_under` を指定してください。
+
+### 「表示件数の上限に達した」と出る
+
+- 1つのガジェットで取得する行数の上限（`max_rows`、既定 5000）に達しています。SPARQL に `LIMIT` を書くか、`max_rows` を増やしてください。
+
+### 設定エラーで起動しない
+
+- エラーの一覧に、どのページ・ガジェットのどの項目が問題かが出ます。[リファレンスの「設定の検証」](config.md#10-設定の検証) を参照してください。
+- ガジェットのパス指定 `Gadget(プロパティ)` は現在使えません（[現在使えない機能](config.md#11-現在使えない機能)）。
+
+---
+
+## 12. 用語
+
+| 用語 | 意味 |
+| --- | --- |
+| リソース | IRI で識別される RDF の対象（例 `http://dbpedia.org/resource/Matterhorn`） |
+| クラス | リソースの種類。`rdf:type` で付く（例 `dbo:Mountain`） |
+| ページ | 画面の定義（`def: page`）。リソースのページ、コレクションのページ、全体のページがある |
+| ガジェット | 画面の部品（`def: gadget`）。取得（`get`）と表示（`show`）の組 |
+| コレクション | リソースの集合。クラスのインスタンス、SPARQL で定義した集合、ガジェットの一覧など |
+| ファセット | コレクションを値や範囲で絞り込むガジェット |
+| `$uri` | SPARQL の中で、表示中のリソースに置き換わる変数 |
+| `$collection` | SPARQL の中で、コレクションの要素（`?entity`）に置き換わる副問い合わせ |

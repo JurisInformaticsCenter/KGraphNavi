@@ -14,6 +14,8 @@
 ##      f.<name>.max=上限      範囲の上限
 ##      f.<name>.match=all     値の組み合わせ（any: いずれか〔既定〕、all: すべて）
 ##      f.<name>.search=語     候補の検索（絞り込みの条件にはならない）
+##      q=語                   検索語（ラベルに語を含む。空白で区切ると、すべてを含む。2026.10.19）
+##      mode=perfect           検索語と一致するラベル（完全一致）
 ##      page=2                 ページ送り（1始まり）
 ##      tab=1                  タブ（0始まり）
 ##
@@ -23,6 +25,7 @@
 ##      params["_args"]   = [(key, value), ...]   URL パラメータそのもの（リンク生成用）
 """
 
+import collections
 import math
 from decimal import Decimal
 from html import escape
@@ -37,7 +40,10 @@ FACET_PREFIX = "f."
 # f.<name>.<option> のオプション（絞り込みの値ではないもの）
 FACET_OPTIONS = (".match", ".search")
 PAGE_PARAM = "page"
+SEARCH_PARAM = "q"
+SEARCH_MODE_PARAM = "mode"
 TAB_PARAM = "tab"
+RANK_PAGE_PARAM = "rpage"   # 順位表のページ送り（要素の一覧の page と分ける。2026.10.20）
 
 
 # --------------------------------------------------
@@ -168,6 +174,13 @@ def value_label(value):
     return text
 
 
+def namespace_hint(value):
+    """IRI の名前空間を短く示す語（http://lod4all.net/law/ontology/Term → law、http://ds.rois.ac.jp/caselaw/ontology/Term → caselaw）"""
+    text = str(value).split("#")[0].rstrip("/")
+    parts = [p for p in text.split("://", 1)[-1].split("/")[1:-1] if p not in ("ontology", "property", "resource", "ns")]
+    return parts[-1] if parts else text.split("://", 1)[-1].split("/")[0]
+
+
 def facet_label(definition, name):
     return (definition or {}).get("label") or name
 
@@ -198,11 +211,19 @@ def render_value_facet(content, height=None):
     ordered += [c for c in candidates if str(c["value"]) not in selected]
     style = f' style="max-height:{int(height)}px"' if height else ""
     items = []
-    for candidate in ordered:
+
+    def shown(candidate):
         value = str(candidate["value"])
         label = candidate.get("label") or value
-        if label == value:
-            label = value_label(value)
+        return value_label(value) if label == value else label
+
+    # 表示名が同じになる別の値（caselawo:Term と lawo:Term がどちらも「Term」）は、名前空間を添えて区別する（2026.10.23）
+    same = collections.Counter(shown(c) for c in ordered)
+    for candidate in ordered:
+        value = str(candidate["value"])
+        label = shown(candidate)
+        if same[label] > 1 and "://" in value:
+            label = f"{label}（{namespace_hint(value)}）"
         checked = " checked" if value in selected else ""
         count = candidate.get("count")
         count_text = f"{int(count):,}" if count is not None else ""
@@ -285,6 +306,21 @@ def render_conditions(params, definitions, count=None, labels=None):
     """
     values, ranges = facet_selection(params)
     chips = []
+    text = (params or {}).get(SEARCH_PARAM)
+    if isinstance(text, str) and text.strip():
+        # 検索語の条件。検索結果のページ（/search）で外すとトップページへ
+        if (params or {}).get(PATH_PARAM) == "/search":
+            url = "/"
+        else:
+            url = make_url(params, drop={SEARCH_PARAM, SEARCH_MODE_PARAM})
+        exact = (params or {}).get(SEARCH_MODE_PARAM) == "perfect"
+        chips.append(
+            '<span class="condition">'
+            f'<span class="condition-name">{"検索語（完全一致）" if exact else "検索語"}:</span> '
+            f'<span class="condition-value">{escape(text)}</span>'
+            f'<a class="condition-remove" href="{escape(url)}" title="この条件を外す">✕</a>'
+            "</span>"
+        )
     for name, selected in values.items():
         field = FACET_PREFIX + name
         label = facet_label(definitions.get(name), name)
@@ -320,12 +356,50 @@ def render_conditions(params, definitions, count=None, labels=None):
         facet_keys = {FACET_PREFIX + name for name in values} | {
             f"{FACET_PREFIX}{name}.{bound}" for name in ranges for bound in ("min", "max")
         }
+        if (params or {}).get(PATH_PARAM) != "/search":
+            facet_keys |= {SEARCH_PARAM, SEARCH_MODE_PARAM}
         parts.append(
             f'<a class="conditions-clear" href="{escape(make_url(params, drop=facet_keys))}">'
             "すべての条件を外す</a>"
         )
     parts.append("</div>")
     return "\n".join(parts)
+
+
+def render_search_box(params):
+    """コレクションの中を検索語で絞り込む入力欄（q）。ほかの条件は引き継ぐ（2026.10.19）"""
+    params = params or {}
+    text = params.get(SEARCH_PARAM) or ""
+    exact = params.get(SEARCH_MODE_PARAM) == "perfect"
+    path = params.get(PATH_PARAM) or ""
+    return (
+        f'<form class="collection-search" method="GET" action="{escape(path)}">'
+        f'{hidden_inputs(params, exclude_keys={SEARCH_PARAM, SEARCH_MODE_PARAM})}'
+        f'<input type="search" name="{SEARCH_PARAM}" value="{escape(text)}" placeholder="この中を検索（ラベル）">'
+        f'<label><input type="checkbox" name="{SEARCH_MODE_PARAM}" value="perfect"{" checked" if exact else ""}>完全一致</label>'
+        '<button type="submit">絞り込む</button>'
+        '</form>'
+    )
+
+
+def current_url(params):
+    """今のページの URL（ページ送りを除く）"""
+    params = params or {}
+    items = [(k, v) for k, v in _args(params) if k != PAGE_PARAM]
+    path = params.get(PATH_PARAM) or ""
+    return f"{path}?{urlencode(items)}" if items else path
+
+
+def render_save_form(params):
+    """今のコレクションに名前を付けて保存するフォーム（POST /collections/save。2026.10.19）"""
+    return (
+        '<form class="collection-save" method="POST" action="/collections/save">'
+        f'<input type="hidden" name="source" value="{escape(current_url(params))}">'
+        '<input type="text" name="name" required maxlength="60" placeholder="名前">'
+        '<label><input type="checkbox" name="overwrite" value="1">上書き</label>'
+        '<button type="submit">名前を付けて保存</button>'
+        '</form>'
+    )
 
 
 def render_pager(params, page, page_size, total):
@@ -345,6 +419,119 @@ def render_pager(params, page, page_size, total):
         links.append(f'<a href="{escape(page_url(params, page + 1))}">次へ ›</a>')
         links.append(f'<a href="{escape(page_url(params, last))}">最後 »</a>')
     return '<nav class="pager">' + " ".join(links) + "</nav>"
+
+
+def rank_page_url(params, page):
+    """順位表のページ送りの URL（要素の一覧の page はそのまま残す）"""
+    items = [(k, v) for k, v in _args(params) if k != RANK_PAGE_PARAM]
+    if page > 1:
+        items.append((RANK_PAGE_PARAM, str(page)))
+    path = (params or {}).get(PATH_PARAM) or ""
+    return f"{path}?{urlencode(items)}"
+
+
+def render_rank(content, show_method=None, chart_html=""):
+    """順位表（get.type: rank）を描画する（2026.10.20）。
+
+    content = {
+        "facet": ファセット名, "facet_label": まとめる値の見出し,
+        "rows": [{"rank", "value", "label", "count", "type", "detail": {列: 値}}, ...],
+        "total": 値の種類の数, "page": ページ番号, "page_size": 1ページの行数,
+        "params": Gadget に渡された params, "list_tab": 要素の一覧のタブの番号（件数のリンク先）,
+    }
+    件数は、その値で絞り込んだ要素の一覧（コレクション）へのリンクにする。
+    """
+    show_method = show_method or {}
+    params = content.get("params") or {}
+    rows = content.get("rows") or []
+    facet = content.get("facet")
+    columns = show_method.get("columns") or []
+    count_label = show_method.get("label") or "件数"
+    value_label_text = show_method.get("value_label") or content.get("facet_label") or "値"
+    total = content.get("total") or 0
+    page = content.get("page") or 1
+    page_size = content.get("page_size") or len(rows) or 1
+    list_tab = content.get("list_tab")
+    ratio = content.get("measure") == "ratio"
+    ratio_head = ""
+    if ratio:
+        ratio_head = (
+            f'<th class="rank-count">{escape(str(show_method.get("denominator_label") or "分母"))}</th>'
+            f'<th class="rank-count">{escape(str(show_method.get("ratio_label") or "比"))}</th>'
+        )
+    head = (
+        '<tr><th class="rank-no">順位</th>'
+        f"<th>{escape(str(value_label_text))}</th>"
+        + "".join(f"<th>{escape(str(c.get('label') or c.get('id')))}</th>" for c in columns)
+        + f'<th class="rank-count">{escape(str(count_label))}</th>' + ratio_head + "</tr>"
+    )
+    body = []
+    highlight = params.get("highlight")
+    for row in rows:
+        value = str(row["value"])
+        label = row.get("label") or value
+        if label == value:
+            label = value_label(value)
+        if row.get("type") == "uri":
+            value_html = f'<a href="{escape(resource_url(value))}" title="{escape(value)}">{escape(str(label))}</a>'
+        else:
+            value_html = escape(str(label))
+        drop = {RANK_PAGE_PARAM, TAB_PARAM, "highlight"}
+        add = [(FACET_PREFIX + facet, value)] if facet else []
+        if list_tab is not None:
+            add.append((TAB_PARAM, str(list_tab)))
+        count_html = (
+            f'<a href="{escape(make_url(params, drop=drop, add=add))}" title="この値の要素の一覧">{int(row["count"]):,}</a>'
+            if facet else f'{int(row["count"]):,}'
+        )
+        cells = []
+        detail = row.get("detail") or {}
+        for c in columns:
+            v = detail.get(c.get("id"))
+            if v is None:
+                cells.append("<td></td>")
+                continue
+            text = get_localname(v) if c.get("display") == "localname" else v
+            cells.append(f"<td>{escape(str(text))}</td>")
+        cls = ' class="rank-highlight"' if highlight and highlight == value else ""
+        ratio_cells = ""
+        if ratio:
+            d = row.get("denominator") or 0
+            d_text = f"{int(d):,}" if float(d).is_integer() else f"{d:,.2f}"
+            r = row.get("ratio") or 0
+            r_text = f"{r * 100:.1f}%" if show_method.get("ratio_format", "percent") == "percent" else f"{r:.3f}"
+            ratio_cells = f'<td class="rank-count">{d_text}</td><td class="rank-count">{r_text}</td>'
+        body.append(
+            f'<tr{cls}><td class="rank-no">{int(row["rank"]):,}</td><td>{value_html}</td>'
+            + "".join(cells) + f'<td class="rank-count">{count_html}</td>' + ratio_cells + "</tr>"
+        )
+    if not body:
+        body.append(f'<tr><td colspan="{3 + len(columns) + (2 if ratio else 0)}" class="facet-empty">値がありません</td></tr>')
+    pager = ""
+    if total > page_size:
+        last = (total + page_size - 1) // page_size
+        start = (page - 1) * page_size + 1
+        end = min(page * page_size, total)
+        links = []
+        if page > 1:
+            links.append(f'<a href="{escape(rank_page_url(params, 1))}">« 最初</a>')
+            links.append(f'<a href="{escape(rank_page_url(params, page - 1))}">‹ 前へ</a>')
+        links.append(f'<span class="pager-status">{start:,}–{end:,} / {total:,} 種類</span>')
+        if page < last:
+            links.append(f'<a href="{escape(rank_page_url(params, page + 1))}">次へ ›</a>')
+            links.append(f'<a href="{escape(rank_page_url(params, last))}">最後 »</a>')
+        pager = '<nav class="pager">' + " ".join(links) + "</nav>"
+    summary = f'<p class="rank-summary">{escape(str(value_label_text))}: {total:,} 種類。件数を押すと、その値を持つ要素の一覧に移ります。</p>'
+    style = (
+        "<style>.rank-table{border-collapse:collapse;margin:.5em 0}.rank-table th,.rank-table td{padding:.25em .6em;"
+        "border-bottom:1px solid #e3e3e0;text-align:left}.rank-table .rank-no,.rank-table .rank-count{text-align:right;"
+        "white-space:nowrap}.rank-table tr.rank-highlight td{background:#fff4cc}</style>"
+    )
+    return (
+        style + summary + chart_html + pager
+        + '<table class="rank-table"><thead>' + head + "</thead><tbody>\n" + "\n".join(body) + "\n</tbody></table>"
+        + pager
+    )
 
 
 def resource_url(uri):

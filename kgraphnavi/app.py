@@ -26,9 +26,13 @@ import logging
 import csv
 import yaml
 from flask import Flask, render_template
-from .render_utils import show_vertical_table, show_horizontal_table, show_facet
+from .render_utils import show_vertical_table, show_horizontal_table, show_facet, get_localname
 from .render_utils import show_chart, show_network, pairs2adjacent, show_adjacentnetwork
 from .sparql import SPARQL, STANDARD_PREFIXES
+from .collection import AnyCollection, TextCondition
+from .saved import SavedCollectionStore, DEFAULT_SAVE_MAX
+from .topic import topic_settings
+from .compare import compare_settings, resolve_types as resolve_compare_types, COMPARE_MAX
 from .collection import Collection, bif_text_expression
 from .errors import ConfigError, GadgetError, ShowError, KGraphError
 from .terms import predicate_term, literal_term, language_tag, is_iri, iri_term
@@ -40,11 +44,18 @@ from .facets import (
     render_value_facet,
     render_range_facet,
     render_conditions,
+    render_search_box,
+    render_save_form,
+    SEARCH_PARAM,
+    SEARCH_MODE_PARAM,
     plan_bins,
     build_histogram,
     is_integer_scale,
     render_pager,
+    render_rank,
+    make_url,
     TAB_PARAM,
+    RANK_PAGE_PARAM,
 )
 
 logger = logging.getLogger(__name__)
@@ -58,6 +69,7 @@ LOCAL_CONFIG_NAME = "local.yaml"
 VALID_TYPES = {
     "literal",
     "link",
+    "select",     # コレクションの要素を選ぶチェックボックス（選んで比べる。2026.10.26）
     "directlink",
     "image",
 }
@@ -147,7 +159,14 @@ def prepare_columns(content, columns):
         if col["type"] == "image":
             col.setdefault("width", 120)
         result.append(col)
+    # 同じ id の列は表のセルが上書きされる(前の列に後の列の値が出る)ので誤りにする(2026.10.19)
+    ids = [col["id"] for col in result]
+    if duplicated := sorted({i for i in ids if ids.count(i) > 1}):
+        raise ConfigError(f"columns に同じ id の列があります: {', '.join(duplicated)}（別の変数にしてください）")
     return result
+
+# static_dirs の名前に使えないもの（KGraphNavi のURL）
+RESERVED_STATIC_NAMES = {"templates", "data", "resource", "collection", "search", "graph"}
 
 # 1つのガジェットで取得する行数の既定の上限（設定 max_rows で変更可）
 DEFAULT_MAX_ROWS = 5000
@@ -173,6 +192,7 @@ def limit_rows(query, max_rows):
 class Rows(list):
     """SPARQLの結果。truncated が True なら上限で打ち切った"""
     truncated = False
+    server_paged = False   # KGraphNavi 側でページ送りした（コレクションのページで page_size があるとき）
 
 
 class GadgetNotFound(Exception):
@@ -180,7 +200,7 @@ class GadgetNotFound(Exception):
 
 class Gadget:
     """Gadget"""
-    __slots__ = ("extract_method", "show_method", "height", "sparql_client", "title", "collection_config")
+    __slots__ = ("extract_method", "show_method", "height", "sparql_client", "title", "collection_config", "compare_config")
     EXTRACTORS = {
         "sparql": "extract_sparql",
         "facet": "extract_facet",
@@ -189,6 +209,7 @@ class Gadget:
         "python": "extract_python",
         "csv": "extract_csv",
         "dbpedia": "extract_dbpedia",
+        "rank": "extract_rank",         # 順位表（コレクションの要素を値ごとに数える。2026.10.20）
     }
     SHOWERS = {
         "network": show_network,
@@ -199,7 +220,7 @@ class Gadget:
     def __repr__(self):
         return f'Config(extract={self.extract_method!r}, show={self.show_method!r})'
 
-    def __init__(self, config_get, config_show, height, title=None, collection=None):
+    def __init__(self, config_get, config_show, height, title=None, collection=None, compare=None):
         """Gadgetの生成。get内容の辞書と、show内容の辞書、gadgetの高さ、見出しを受け取る
 
         collection: 一覧の列（var）の値をコレクションとして表示するボタンの設定
@@ -212,6 +233,8 @@ class Gadget:
         # 見出し。省略時はファセットなら label、それ以外はガジェット名
         self.title = title
         self.collection_config = collection
+        # 一覧（var の列のリソース）と表示中のリソースを並べて比べるボタン（/compare?from=。2026.10.26）
+        self.compare_config = compare
 
     @property
     def is_facet(self):
@@ -291,6 +314,8 @@ class Gadget:
     @property
     def page_size(self):
         """ページ送りの1ページあたりの件数（get.page_size）。指定がなければ None"""
+        if self.extract_method.get("type") == "rank":
+            return None   # 順位表は自分でページを送る（rpage）。要素の一覧のページ送りは付けない
         size = self.extract_method.get("page_size")
         return int(size) if size else None
 
@@ -322,7 +347,11 @@ class Gadget:
         if max_rows and len(result) > max_rows:
             del result[max_rows:]
             result.truncated = True
-        return self._apply_values(result, uri)
+        result.server_paged = limit is not None
+        out = self._apply_values(result, uri)
+        if isinstance(out, Rows):
+            out.server_paged = result.server_paged
+        return out
 
     def extract_list(self, uri, application, params=None, collection=None):
         lines = [line for line in self.extract_method['src'].split('\n') if line]
@@ -372,6 +401,99 @@ class Gadget:
     ):
         """（互換用）Application.apply_collection_filters() を呼ぶ。"""
         return application.apply_collection_filters(collection, params=params, exclude=exclude)
+
+    def extract_rank(self, uri, application, params=None, collection=None):
+        """順位表: コレクションの要素を、ファセットの値ごとに数えて多い順に並べる（2026.10.20）。
+
+        get:
+          facet: まとめる値のファセット名（そのファセットの predicate・label_predicate を使う。件数のリンクの絞り込みにも使う）
+          predicate: ファセットを使わずにまとめる値のパスを書くとき（件数のリンクは出ない）
+          value_class: まとめる値をこのクラスのものに限る（例 lawo:Clause）
+          value_filter: まとめる値 ?value の条件（SPARQL の FILTER の式。例: 条だけにする）
+          order: count（件数の多い順。既定）/ value（値の順）
+          page_size: 1ページの行数（既定 50）。ページ送りは rpage=
+          detail: 値の属性を取る SPARQL。$values が VALUES ?value { そのページの値 } になる
+          list_tab: 件数のリンク先のタブの番号（要素の一覧のタブ）
+          measure: count（件数。既定）/ ratio（件数 ÷ 分母の大きい順。2026.10.21）
+          denominator: measure: ratio のときの分母。?value と ?denominator を返す SELECT（コレクションの条件は掛からない）
+          min_denominator: 分母がこれより小さい値は除く（少ない分母で比が大きく出るのを避ける）
+        """
+        if application is None or collection is None:
+            raise GadgetError("get.type=rank はコレクションのページで使ってください")
+        params = params or {}
+        facet_name = self.extract_method.get("facet")
+        definition = application.get_facet_definition(facet_name) if facet_name else None
+        if facet_name and definition is None:
+            raise GadgetError(f"rank の facet が見つかりません: {facet_name}")
+        definition = definition or {}
+        predicate = self.extract_method.get("predicate") or definition.get("predicate")
+        if not predicate:
+            raise GadgetError("rank には facet か predicate が必要です")
+        page_size = int(self.extract_method.get("page_size") or 50)
+        try:
+            page = max(1, int(params.get(RANK_PAGE_PARAM, 1)))
+        except (TypeError, ValueError):
+            page = 1
+        measure = self.extract_method.get("measure", "count")
+        label_predicate = self.extract_method.get("label_predicate") or definition.get("label_predicate", "rdfs:label")
+        if measure == "ratio":
+            denominator = self.extract_method.get("denominator")
+            if not denominator:
+                raise GadgetError("measure: ratio には denominator（?value と ?denominator を返す SELECT）が必要です")
+            result = collection.get_ratio_rank(
+                predicate,
+                self._expand_snippet(denominator, application),
+                value_class=self.extract_method.get("value_class"),
+                value_filter=self.extract_method.get("value_filter"),
+                label_predicate=label_predicate,
+                lang=self.extract_method.get("lang") or definition.get("lang"),
+                min_denominator=self.extract_method.get("min_denominator"),
+                limit=page_size,
+                offset=(page - 1) * page_size,
+            )
+        else:
+            result = collection.get_rank(
+                predicate,
+                value_class=self.extract_method.get("value_class"),
+                value_filter=self.extract_method.get("value_filter"),
+                label_predicate=label_predicate,
+                lang=self.extract_method.get("lang") or definition.get("lang"),
+                order=self.extract_method.get("order", "count"),
+                limit=page_size,
+                offset=(page - 1) * page_size,
+            )
+        rows = result["rows"]
+        src = self.extract_method.get("detail")
+        if src and rows:
+            values = " ".join(iri_term(r["value"]) if r.get("type") == "uri" else literal_term(r["value"]) for r in rows)
+            query = self._expand_snippet(src, application).replace("$values", f"VALUES ?value {{ {values} }}")
+            details = {}
+            for b in self.sparql_client.query(query) or []:
+                if "value" not in b:
+                    continue
+                d = details.setdefault(b["value"]["value"], {})
+                for k, v in b.items():
+                    if k == "value":
+                        continue
+                    text = v.get("value")
+                    if k in d and text not in str(d[k]).split("、"):
+                        d[k] = f"{d[k]}、{text}"
+                    else:
+                        d.setdefault(k, text)
+            for r in rows:
+                r["detail"] = details.get(str(r["value"]), {})
+        return {
+            "kind": "rank",
+            "facet": facet_name if definition else None,
+            "facet_label": definition.get("label"),
+            "rows": rows,
+            "total": result["total"],
+            "page": page,
+            "page_size": page_size,
+            "params": params,
+            "list_tab": self.extract_method.get("list_tab"),
+            "measure": measure,
+        }
 
     def extract_facet(self, uri, application, params=None, collection=None):
         """CollectionからFacet候補を取得する。
@@ -489,9 +611,28 @@ class Gadget:
                 kwargs["value_width"] = self.show_method.get("value_width")
             else:
                 kwargs["group_by"] = self.show_method.get("group_by")
+                # 親子の階層で表示する（2026.10.18）
+                kwargs["tree"] = self.show_method.get("tree")
                 # KGraphNavi 側でページ送りするガジェットでは、表のページ送りは使わない
-                kwargs["paging"] = not self.page_size
+                # （コレクションでないページでは page_size があっても全行を取るので、表の中でページ送りし、件数も出す）
+                kwargs["paging"] = not getattr(content, "server_paged", False)
             return shower(content, columns, **kwargs,)
+        if show_type == "rank":
+            chart_html = ""
+            chart = self.show_method.get("chart")
+            if chart and isinstance(content, dict) and content.get("page", 1) == 1 and content.get("rows"):
+                top = content["rows"][: int(self.show_method.get("chart_top", 20))]
+                ratio = content.get("measure") == "ratio"
+                pairs = [
+                    {"label": {"value": r["label"] if r["label"] != r["value"] else get_localname(str(r["value"]))},
+                     "count": {"value": round(r["ratio"] * 100, 2) if ratio else r["count"]}}
+                    for r in top
+                ]
+                chart_html = show_chart(pairs, {"chart": chart, "labels": "label", "dataset": "count",
+                                                "label": (self.show_method.get("ratio_label", "比（%）") if ratio
+                                                          else self.show_method.get("label", "件数")),
+                                                "height": self.show_method.get("chart_height", 320)})
+            return render_rank(content, self.show_method, chart_html)
         if show_type == "facet":
             if isinstance(content, dict) and content.get("kind") == "range":
                 return render_range_facet(content)
@@ -511,6 +652,27 @@ class Gadget:
         if show_type == "chart":
             return shower(content, self.show_method)
         return shower(content)
+
+SELECT_COLUMN = {"id": "_kgselect", "type": "select", "label": "比べる", "width": 50}
+
+
+def with_select_column(gadget, content):
+    """コレクションの要素（?entity が IRI）の一覧の表なら、先頭にチェックボックスの列を足したガジェットと結果を返す。
+    show に select: false と書いたガジェットには足さない"""
+    show = gadget.show_method or {}
+    columns = show.get("columns")
+    if (show.get("type") != "htable" or show.get("select") is False or not isinstance(columns, list)
+            or not content or not isinstance(content, list) or not isinstance(content[0], dict)
+            or (content[0].get("entity") or {}).get("type") != "uri"):
+        return gadget, content
+    rows = Rows(dict(r, _kgselect=r.get("entity")) for r in content)
+    rows.truncated = getattr(content, "truncated", False)
+    rows.server_paged = getattr(content, "server_paged", False)
+    g = Gadget(gadget.extract_method, {**show, "columns": [SELECT_COLUMN] + columns}, gadget.height,
+               gadget.title, gadget.collection_config, gadget.compare_config)
+    g.sparql_client = gadget.sparql_client
+    return g, rows
+
 
 class Pages:
     """Pageの処理
@@ -667,6 +829,11 @@ SPECIAL_PAGE_TYPES = {"*", "collection", "graph"}
 # class に対応するページがないときに使う、組み込みのコレクションのページとガジェット
 BUILTIN_COLLECTION_PAGE = "_Collection"
 BUILTIN_COLLECTION_GADGET = "_collection_list"
+# 検索結果のページ（2026.10.19）
+BUILTIN_SEARCH_PAGE = "_Search"
+BUILTIN_SEARCH_GADGET = "_search_list"
+BUILTIN_TYPE_FACET = "_facet_type"
+TYPE_FACET = "_type"
 
 
 def builtin_collection_gadget(label_predicate="rdfs:label", label_lang=None):
@@ -682,7 +849,7 @@ def builtin_collection_gadget(label_predicate="rdfs:label", label_lang=None):
         preferred = ""
         label = "SAMPLE(?_any)"
     src = (
-        f"SELECT ?entity ({label} AS ?label)\n"
+        f"SELECT ?entity ({label} AS ?label) (STR(?entity) AS ?entityuri)\n"
         "WHERE {\n"
         "    $collection\n"
         f"{preferred}"
@@ -697,11 +864,51 @@ def builtin_collection_gadget(label_predicate="rdfs:label", label_lang=None):
             "type": "htable",
             "columns": [
                 {"id": "entity", "type": "link", "string": "?label", "label": "名前", "width": 400},
-                {"id": "entity", "type": "literal", "label": "URI", "width": 500},
+                # 名前の列と同じ id にすると、セルが上書きされて名前の列に URI が出る(2026.10.19)
+                {"id": "entityuri", "type": "literal", "label": "URI", "width": 500},
             ],
         },
         height=None,
         title="一覧",
+    )
+
+
+def builtin_search_gadget(label_predicate="rdfs:label", label_lang=None):
+    """検索結果の要素を、ラベルと種類（rdf:type）とともに一覧する組み込みガジェット（2026.10.19）"""
+    label_predicate = predicate_term(label_predicate)
+    if label_lang:
+        preferred = (
+            f"    OPTIONAL {{ ?entity {label_predicate} ?_preferred . "
+            f"FILTER(LANGMATCHES(LANG(?_preferred), {literal_term(language_tag(label_lang))})) }}\n"
+        )
+        label = "COALESCE(SAMPLE(?_preferred), SAMPLE(?_any))"
+    else:
+        preferred = ""
+        label = "SAMPLE(?_any)"
+    src = (
+        f"SELECT ?entity ({label} AS ?label) (STR(?entity) AS ?entityuri) ?type\n"
+        "WHERE {\n"
+        "    $collection\n"
+        f"{preferred}"
+        f"    OPTIONAL {{ ?entity {label_predicate} ?_any }}\n"
+        "    OPTIONAL { ?entity a ?type }\n"
+        "}\n"
+        "GROUP BY ?entity ?type\n"
+        "ORDER BY ?entity"
+    )
+    return Gadget(
+        config_get={"type": "sparql", "page_size": 50, "src": src},
+        config_show={
+            "type": "htable",
+            "group_by": "entity",
+            "columns": [
+                {"id": "entity", "type": "link", "string": "?label", "label": "名前", "width": 400},
+                {"id": "type", "type": "literal", "display": "localname", "label": "種類", "width": 160},
+                {"id": "entityuri", "type": "literal", "label": "URI", "width": 400},
+            ],
+        },
+        height=None,
+        title="検索結果",
     )
 
 
@@ -735,13 +942,14 @@ def probe_bif_contains(sparql_client, label_predicate="rdfs:label"):
 
 # 設定の検証で使う、対応しているget/showの種類
 SUPPORTED_GET_TYPES = set(Gadget.EXTRACTORS)
-SUPPORTED_SHOW_TYPES = {"vtable", "htable", "facet"} | set(Gadget.SHOWERS)
+SUPPORTED_SHOW_TYPES = {"vtable", "htable", "facet", "rank"} | set(Gadget.SHOWERS)
 
+TOPIC_FORM = '<form action="/topic" method="GET"><div class="search_wrap"><input name="q" type="search" placeholder="トピックのキーワード" /><button type="submit">トピック</button></div></form>'
 RETRIEVE_FORM = '<form action="/search" method="GET"><div class="search_wrap"><input name="q" type="search" placeholder="検索キーワード" /><button type="submit">検索</button><div class="search-modes"><label><input type="radio" name="mode" value="partial" checked>部分</label><label><input type="radio" name="mode" value="perfect">完全</label></div></div></form>'
 
 class Application:
     """Application"""
-    __slots__ = ("pages", "gadgetset", "title", "describe", "query_samples", "resource_samples", "collection_samples", "adjacent", "priority_list", "focus", "navi", "sparql_client", "data_dir", "data_dirs", "max_rows", "prefixes", "class_page_cache", "text_search", "text_search_cache")
+    __slots__ = ("pages", "gadgetset", "title", "describe", "query_samples", "resource_samples", "collection_samples", "adjacent", "priority_list", "focus", "navi", "sparql_client", "data_dir", "data_dirs", "static_dirs", "max_rows", "prefixes", "class_page_cache", "text_search", "text_search_cache", "label_predicate", "saved_store", "saved_max", "topic_config", "compare_views")
     def __repr__(self):
         return f'Application={self.pages!r}, {self.gadgetset}'
 
@@ -756,11 +964,15 @@ class Application:
         self.priority_list = priority_list
         self.adjacent = dict()
         self.focus = None
-        self.navi = f'<nav class="navbar"><ul><li class="nav_left"><a href="{frontend_base_url}">{self.title}</a></li><li class="nav_right search_item">{RETRIEVE_FORM}</li></ul></nav>'
+        self.navi = (f'<nav class="navbar"><ul><li class="nav_left"><a href="{frontend_base_url}">{self.title}</a></li>'
+                     '<li class="nav_left"><a href="/collections">保存したコレクション</a></li>'
+                     f'<li class="nav_right search_item">{RETRIEVE_FORM}</li></ul></nav>')
         self.sparql_client = sparql_client
         self.data_dir = Path(data_dir) if data_dir else None
         # /data/<名前>/<path> で配信する別のフォルダ（設定の data_dirs。例: churoi → 中労委のlhtml）
         self.data_dirs = {}
+        # /<名前>/<path> で配信するフォルダ（設定の static_dirs。例: css → 判決HTMLが ../../css/hanrei.css で参照するCSS）
+        self.static_dirs = {}
         self.max_rows = DEFAULT_MAX_ROWS
         self.prefixes = {}
         # RDFクラス → コレクションのページ名（上位クラスの問い合わせ結果を記憶する）
@@ -768,6 +980,15 @@ class Application:
         # 候補の検索の方法（auto / bif / contains）と、auto で判定した結果（ラベルの述語ごと）
         self.text_search = "auto"
         self.text_search_cache = {}
+        # ラベルの predicate（検索語の条件に使う）
+        self.label_predicate = "rdfs:label"
+        # 名前を付けて保存したコレクション（設定 saved_collections_dir・saved_collection_max。2026.10.19）
+        self.saved_store = None
+        self.saved_max = DEFAULT_SAVE_MAX
+        # キーワードからトピックを作る設定（topic:。2026.10.26）
+        self.topic_config = None
+        # 列に並べて比べる比べ方（compare:。2026.10.26）
+        self.compare_views = None
 
     def resolve_gadget(self, spec):
         if m := re.match(r'(.*)\((.*)\)', spec):
@@ -801,6 +1022,25 @@ class Application:
             )
         return cache[label_predicate]
 
+    def text_condition(self, text, exact=False, collection=None):
+        """検索語の条件（ラベルに検索語を含む。URL の q、mode=perfect なら完全一致）を返す（2026.10.19）。
+
+        Virtuoso の全文索引（bif:contains）が使えればそれで先に絞る。全文索引は語単位の一致なので、
+        collection を渡すと、全文索引で1件も無いときは CONTAINS だけで探す条件にする（text_search: auto のとき）
+        """
+        label_predicate = getattr(self, "label_predicate", None) or "rdfs:label"
+        method = self.text_search_method(label_predicate)
+        condition = TextCondition(text, label_predicate, method=method, exact=exact)
+        if (method == "bif" and collection is not None
+                and getattr(self, "text_search", "auto") == "auto"
+                and collection.where(condition).count() == 0):
+            condition = TextCondition(text, label_predicate, method="contains", exact=exact)
+        return condition
+
+    def search_collection(self, text, exact=False):
+        """検索結果（ラベルに検索語を含むリソース）のコレクション"""
+        return AnyCollection(self.sparql_client).where(self.text_condition(text, exact, AnyCollection(self.sparql_client)))
+
     def make_gadget(self, gadget_name, uri, params=None, collection=None,):
         """Gadgetを実行してHTMLを作成する。"""
         name, path, gadget = self.resolve_gadget(gadget_name)
@@ -831,8 +1071,9 @@ class Application:
             type(content).__name__,
             len(content) if content else 0,
         )
-        # 表示
-        gadget_body = gadget.show(content)
+        # 表示（コレクションのページで要素 ?entity の一覧なら、選んで比べるチェックボックスの列を付ける。2026.10.26）
+        shown_gadget, content = with_select_column(gadget, content) if collection is not None else (gadget, content)
+        gadget_body = shown_gadget.show(content)
         if getattr(content, "truncated", False):
             gadget_body += (
                 '<p class="gadget-notice">表示件数の上限'
@@ -868,6 +1109,16 @@ class Application:
             action = (
                 f'<a class="gadget-action" href="/collection?{html_escape(urlencode(query))}">'
                 f'{html_escape(config.get("label") or "コレクションとして表示")}</a>'
+            )
+        compare_conf = getattr(gadget, "compare_config", None)
+        if compare_conf and content and collection is None and uri:
+            # 一覧と表示中のリソースを列に並べて比べる（2026.10.26）
+            query = {"from": name, "uri": uri}
+            if compare_conf.get("view"):
+                query["view"] = compare_conf["view"]
+            action += (
+                f'<a class="gadget-action" href="/compare?{html_escape(urlencode(query))}">'
+                f'{html_escape(compare_conf.get("label") or "並べて比べる")}</a>'
             )
         return f"""
         <section class="gadget">
@@ -929,6 +1180,14 @@ class Application:
         for i, tab in enumerate(tabs):
             tab_id = f"tab_{page}_{i}"
             current = " active" if i == active else ""
+            # lazy: true のタブは、選ばれたときだけ計算する（順位表など重いもの。2026.10.20）。ボタンはページを読み直すリンク
+            if tab.get("lazy") and i != active:
+                href = make_url(params, drop={TAB_PARAM, RANK_PAGE_PARAM}, add=[(TAB_PARAM, str(i))])
+                tab_buttons.append(
+                    f'<a class="kg-tab-button kg-tab-link" href="{html_escape(href)}">'
+                    f'{html_escape(str(tab["label"]))}</a>'
+                )
+                continue
             tab_buttons.append(
                 f'<button type="button" '
                 f'class="kg-tab-button{current}" '
@@ -948,7 +1207,7 @@ class Application:
         script = """
     <script>
     document.addEventListener("DOMContentLoaded", function () {
-        const buttons = document.querySelectorAll(".kg-tab-button");
+        const buttons = document.querySelectorAll("button.kg-tab-button");
         buttons.forEach(function (button) {
             button.addEventListener("click", function () {
                 const target = button.dataset.tab;
@@ -1039,21 +1298,7 @@ class Application:
         page_def = self.pages.pagedict[page]
         if params is None:
             params = {}
-        collection = None
-        if base_collection is not None:
-            collection = base_collection
-        elif page_def.get("type") == "collection":
-            collection = self.get_collection(
-                uri,
-                params=params,
-                query=page_def.get("query"),
-            )
-        elif page_def.get("collection") == "instances" and uri:
-            # リソース（クラス）のページで、そのクラスのインスタンスをコレクションにする
-            collection = Collection.from_class(self.sparql_client, uri)
-        if collection is not None:
-            # URLで指定されたFacet条件で絞り込み、ページ内のGadgetで共有する
-            collection = self.apply_collection_filters(collection, params)
+        collection = self.page_collection(page, uri, params, base_collection)
         logger.debug(
             "collection: query=%r",
             collection.get_query() if collection is not None else None,
@@ -1082,6 +1327,27 @@ class Application:
             ]
         return header + body
 
+    def page_collection(self, page, uri, params=None, base_collection=None):
+        """ページのコレクション（URL のファセット・検索語の条件で絞り込んだもの）。コレクションの無いページは None"""
+        page_def = self.pages.pagedict[page]
+        params = params or {}
+        collection = None
+        if base_collection is not None:
+            collection = base_collection
+        elif page_def.get("type") == "collection":
+            collection = self.get_collection(
+                uri,
+                params=params,
+                query=page_def.get("query"),
+            )
+        elif page_def.get("collection") == "instances" and uri:
+            # リソース（クラス）のページで、そのクラスのインスタンスをコレクションにする
+            collection = Collection.from_class(self.sparql_client, uri)
+        if collection is not None:
+            # URLで指定されたFacet条件で絞り込み、ページ内のGadgetで共有する
+            collection = self.apply_collection_filters(collection, params)
+        return collection
+
     def make_collection_header(self, collection, params):
         """コレクションのページの先頭に、件数と現在の絞り込み条件を表示する。"""
         definitions = {}
@@ -1090,7 +1356,9 @@ class Application:
             if extract_method.get("type") == "facet" and extract_method.get("name"):
                 definitions[extract_method["name"]] = extract_method
         labels = self.condition_labels(params, definitions)
-        return render_conditions(params, definitions, count=collection.count(), labels=labels)
+        return (render_conditions(params, definitions, count=collection.count(), labels=labels)
+                + '<div class="collection-tools">' + render_search_box(params) + render_save_form(params)
+                + f'<div class="kg-compare-bar" id="kg-compare-bar" data-max="{COMPARE_MAX}"></div></div>')
 
     def condition_labels(self, params, definitions):
         """現在の条件の値（IRI）のラベルを、1回の問い合わせでまとめて取得する。"""
@@ -1211,9 +1479,14 @@ class Application:
         excluded = set(exclude or ())
         applied = {condition.name for condition in collection.conditions}
         result = collection
+        # 検索語（q。mode=perfect なら完全一致）: ラベルに検索語を含む（2026.10.19）
+        text = params.get(SEARCH_PARAM)
+        if isinstance(text, str) and text.strip() and SEARCH_PARAM not in excluded and SEARCH_PARAM not in applied:
+            result = result.where(self.text_condition(text, params.get(SEARCH_MODE_PARAM) == "perfect", collection))
+            applied.add(SEARCH_PARAM)
         for name, value in params.items():
-            # Collection自身を定義するパラメータ
-            if name in ("class", "uri"):
+            # Collection自身を定義するパラメータ、検索語
+            if name in ("class", "uri", "saved", SEARCH_PARAM, SEARCH_MODE_PARAM):
                 continue
             # 値が指定されていないパラメータ、除外するFacet、適用済みのFacet
             if value is None or value == "" or name in excluded or name in applied:
@@ -1391,6 +1664,15 @@ def setconfig(config, base_dir=None):
                 src = get_config.get("src")
                 if not src or not isinstance(src, str):
                     errors.append("get.type=sparql の場合、get.srcが必要です")
+            if get_type == "rank":
+                if not get_config.get("facet") and not get_config.get("predicate"):
+                    errors.append("get.type=rank の場合、get.facet か get.predicate が必要です")
+                if get_config.get("order", "count") not in ("count", "value"):
+                    errors.append("get.order は count か value です")
+                if get_config.get("measure", "count") not in ("count", "ratio"):
+                    errors.append("get.measure は count か ratio です")
+                if get_config.get("measure") == "ratio" and not get_config.get("denominator"):
+                    errors.append("get.measure=ratio の場合、get.denominator が必要です")
         show_config = config.get("show")
         if show_config is None:
             errors.append("showがありません")
@@ -1435,9 +1717,14 @@ def setconfig(config, base_dir=None):
         "frontend_base_url",
         "data_dir",
         "data_dirs", # /data/<名前>/<path> で配信する別のフォルダ {名前: フォルダ}
+        "static_dirs", # /<名前>/<path> で配信するフォルダ {名前: フォルダ}（判決HTMLのCSSなど）
+        "saved_collections_dir", # 名前を付けて保存したコレクションのフォルダ（既定は設定ファイルのフォルダの saved_collections）
+        "saved_collection_max",  # 保存できるコレクションの要素の数の上限（既定 10000）
         "max_rows",
         "label_lang",
         "text_search", # ファセットの候補の検索: auto（既定）/ bif / contains
+        "topic",       # キーワードからトピックのコレクションを作る（kgraphnavi/topic.py。2026.10.26）
+        "compare",     # 少数のリソースを列に並べて比べる比べ方（kgraphnavi/compare.py。2026.10.26）
     }
     PAGE_KEYS = {
         "def",
@@ -1455,6 +1742,7 @@ def setconfig(config, base_dir=None):
         "name",
         "title", # 見出し（省略時はガジェット名、ファセットは get.label）
         "collection", # 一覧をコレクションとして表示するボタン {var, class, label}
+        "compare",    # 一覧（var の列）と表示中のリソースを並べて比べるボタン {var, label, self}（2026.10.26）
         "height",
         "get",
         "show",
@@ -1468,9 +1756,14 @@ def setconfig(config, base_dir=None):
     frontend_base_url = None
     data_dir = None
     data_dirs = {}
+    static_dirs = {}
+    saved_collections_dir = None
+    saved_collection_max = DEFAULT_SAVE_MAX
     max_rows = DEFAULT_MAX_ROWS
     label_lang = None
     text_search = "auto"
+    topic = None
+    compare = None
     label_predicate = None
     prefixes = {}
     query_samples = []
@@ -1521,6 +1814,17 @@ def setconfig(config, base_dir=None):
                     raise ConfigError("data_dirs は {名前: フォルダ} の形で書いてください")
                 for key, value in config["data_dirs"].items():
                     data_dirs[str(key)] = resolve_dir(value, base_dir)
+            if "saved_collections_dir" in config:
+                saved_collections_dir = resolve_dir(config["saved_collections_dir"], base_dir)
+            if "saved_collection_max" in config:
+                saved_collection_max = int(config["saved_collection_max"])
+            if "static_dirs" in config:
+                if not isinstance(config["static_dirs"], dict):
+                    raise ConfigError("static_dirs は {名前: フォルダ} の形で書いてください")
+                for key, value in config["static_dirs"].items():
+                    if str(key) in RESERVED_STATIC_NAMES:
+                        raise ConfigError(f"static_dirs の名前 '{key}' は KGraphNavi が使っています")
+                    static_dirs[str(key)] = resolve_dir(value, base_dir)
             if "label_lang" in config:
                 label_lang = config["label_lang"]
             if "text_search" in config:
@@ -1529,6 +1833,16 @@ def setconfig(config, base_dir=None):
                     raise ConfigError(
                         f"text_searchは {' / '.join(TEXT_SEARCH_MODES)} のいずれかです: {config['text_search']!r}"
                     )
+            if "topic" in config:
+                try:
+                    topic = topic_settings(config["topic"])
+                except ValueError as e:
+                    raise ConfigError(str(e)) from e
+            if "compare" in config:
+                try:
+                    compare = compare_settings(config["compare"])
+                except ValueError as e:
+                    raise ConfigError(str(e)) from e
             if "max_rows" in config:
                 try:
                     max_rows = int(config["max_rows"])
@@ -1575,12 +1889,20 @@ def setconfig(config, base_dir=None):
                     raise ConfigError(f"gadget({name})のcollectionには var（変数名）か facet が必要です")
                 if config["get"].get("type") != "sparql":
                     raise ConfigError(f"gadget({name})のcollectionは get.type: sparql のガジェットでだけ使えます")
+            gadget_compare = config.get("compare")
+            if gadget_compare is not None:
+                if isinstance(gadget_compare, str):
+                    gadget_compare = {"var": gadget_compare}
+                if not isinstance(gadget_compare, dict) or not re.fullmatch(
+                        r"[A-Za-z_][A-Za-z0-9_]*", str(gadget_compare.get("var", ""))):
+                    raise ConfigError(f"gadget({name})のcompareには var（変数名）が必要です")
             gadgetset[name] = Gadget(
                 config_get=config["get"],
                 config_show=config["show"],
                 height=height,
                 title=config.get("title"),
                 collection=gadget_collection,
+                compare=gadget_compare,
             )
         else: # 未知のdef
             raise ConfigError(f"未知のdef: {deftype!r}(page または gadget を指定してください)")
@@ -1592,6 +1914,23 @@ def setconfig(config, base_dir=None):
     pages.pagedict[BUILTIN_COLLECTION_PAGE] = {
         "type": "collection",
         "gadget": [BUILTIN_COLLECTION_GADGET],
+        "tabs": None,
+        "query": None,
+        "class": [],
+    }
+    # 検索結果（/search）のページ: ラベルに検索語を含むリソースのコレクション。種類（rdf:type）のファセットで
+    # クラスを1つ選ぶと、そのクラスのコレクションのページに検索語の条件を持ったまま移る（2026.10.19）
+    gadgetset[BUILTIN_SEARCH_GADGET] = builtin_search_gadget(label_predicate or "rdfs:label", label_lang)
+    gadgetset[BUILTIN_TYPE_FACET] = Gadget(
+        config_get={"type": "facet", "name": TYPE_FACET, "label": "種類", "predicate": "rdf:type",
+                    "value_type": "iri", "limit": 50},
+        config_show={"type": "facet"},
+        height=None,
+    )
+    pages.pagedict[BUILTIN_SEARCH_PAGE] = {
+        "type": "collection",
+        "gadget": [BUILTIN_SEARCH_GADGET],
+        "sidebar": [BUILTIN_TYPE_FACET],
         "tabs": None,
         "query": None,
         "class": [],
@@ -1613,8 +1952,13 @@ def setconfig(config, base_dir=None):
         "frontend_base_url": frontend_base_url,
         "data_dir": data_dir,
         "data_dirs": data_dirs,
+        "static_dirs": static_dirs,
+        "saved_collections_dir": saved_collections_dir or (base_dir / "saved_collections"),
+        "saved_collection_max": saved_collection_max,
         "max_rows": max_rows,
         "text_search": text_search,
+        "topic": topic,
+        "compare": compare,
     }
 
 
@@ -1704,8 +2048,20 @@ def build_application(
     )
     application.max_rows = cfg["max_rows"]
     application.data_dirs = {k: v for k, v in (cfg.get("data_dirs") or {}).items() if v}
+    application.static_dirs = {k: v for k, v in (cfg.get("static_dirs") or {}).items() if v}
+    if cfg.get("saved_collections_dir"):
+        application.saved_store = SavedCollectionStore(cfg["saved_collections_dir"])
+    application.saved_max = cfg.get("saved_collection_max") or DEFAULT_SAVE_MAX
     application.text_search = cfg.get("text_search", "auto")
+    application.label_predicate = label_predicate
     application.prefixes = {**STANDARD_PREFIXES, **(cfg["prefixes"] or {})}
+    application.topic_config = cfg.get("topic")
+    application.compare_views = cfg.get("compare") or []
+    resolve_compare_types(application.compare_views, lambda t: expand_prefixed(t, application.prefixes))
+    if application.topic_config:   # 上の帯に「トピック」の入り口
+        application.navi = application.navi.replace(
+            '<li class="nav_right search_item">',
+            f'<li class="nav_right search_item">{TOPIC_FORM}</li><li class="nav_right search_item">', 1)
     return application
 
 

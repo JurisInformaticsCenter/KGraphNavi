@@ -2,25 +2,43 @@
 
 コレクションは、RDF リソース（エンティティ）の集合です。`/collection` のページで一覧・統計・絞り込み（ファセット）を表示します。
 
+例は [`config/dbpedia.yaml`](../config/dbpedia.yaml)（DBpedia の山）から取っています。設定項目の一覧は [設定ファイルリファレンス](config.md) を参照してください。
+
+コレクションには次の4種類があります。
+
+| コレクション | 作り方 | URL |
+| --- | --- | --- |
+| クラスのインスタンス | `class:` を書いたページ、または URL の `class=` | `/collection?class=dbo:Mountain` |
+| SPARQL で定義した集合 | ページの `query:` | `/collection?view=AlpsMountains` |
+| ガジェットの一覧 | ガジェットの `collection:` のボタン | `/collection?from=SameRange&uri=…` |
+| クラスのページのインスタンス | リソースのページの `collection: instances` | `/resource?uri=<クラス>` |
+
 ## コレクションのページ
 
 ```yaml
 - def: page
   name: MountainCollection
   type: collection
-  class: dbo:Mountain       # このページが対象とするクラス（リストで複数も可）
-  query: |                  # 省略時は URL の class=<クラスURI> のインスタンス
+  class: dbo:Mountain       # このページが対象とするクラス（リストで複数も可）。要素は URL の class=<クラス> のインスタンス
+  gadget:
+    - facet_country         # ファセットは左の列に表示される
+    - MountainList
+
+- def: page
+  name: AlpsMountains       # /collection?view=AlpsMountains
+  type: collection
+  query: |                  # SPARQL で定義した集合
     SELECT ?uri
     WHERE {
-      ?uri rdf:type dbo:Mountain .
-      ?uri dct:subject dbc:Mountains_of_the_Alps .
+      ?uri a dbo:Mountain ;
+           dct:subject dbc:Mountains_of_the_Alps .
     }
   gadget:
-    - mountain_facet        # ファセットは左の列に表示される
-    - mountain_list
+    - facet_country
+    - MountainList
 ```
 
-- `query` は `?uri` を返す SELECT です。`PREFIX` は書かず、設定ファイルの `prefixes` に書いてください（`rdf` `rdfs` `xsd` `owl` は書かなくても使えます）。
+- `query` は `?uri` を返す SELECT です。`query` のページには `class` を書かないでください（書くと、そのクラスのコレクションにもこのページが使われ、`query` の集合が表示されます）。`PREFIX` は書かず、設定ファイルの `prefixes` に書いてください（`rdf` `rdfs` `xsd` `owl` は書かなくても使えます）。
 - ページの先頭に、件数と現在の絞り込み条件が表示されます。条件の ✕ で、その条件を外せます。
 - `gadget` の代わりに `tabs` も使えます。選んだタブは URL（`tab=番号`）に残ります。
 
@@ -30,15 +48,16 @@
 
 ```yaml
 - def: page
-  name: CaseLawDocuments
+  name: AlpsMountains
   type: collection
-  class: caselawo:CaseLawDocument
-  sidebar: [facet_suit_type, facet_year]
+  query: |
+    SELECT ?uri WHERE { ?uri a dbo:Mountain ; dct:subject dbc:Mountains_of_the_Alps . }
+  sidebar: [facet_country, facet_range, facet_elevation, facet_first_ascent]
   tabs:
     - label: 一覧
-      gadget: [CaseLawDocumentList]
-    - label: PDFページ数分布
-      gadget: [PageFrequencyDistributionBar]
+      gadget: [MountainList]
+    - label: 国別
+      gadget: [CountryPie]
 ```
 
 ### クラスのリソースのページでインスタンスを集計する（collection: instances）
@@ -48,10 +67,16 @@
 ```yaml
 - def: page
   name: Class
-  type: http://www.w3.org/2002/07/owl#Class
+  type: owl:Class
   collection: instances
-  gadget: [Out, PageFrequencyDistributionBar]
+  tabs:
+    - label: インスタンス
+      gadget: [ClassInstances]     # $collection の要素を50件ずつ一覧する
+    - label: 国別
+      gadget: [CountryBar]         # $collection の要素を国ごとに数える
 ```
+
+このページのガジェットにはすべてコレクションが渡されます。コレクションを使わないガジェットは置かないでください（[ガジェットでコレクションを受け取る](#ガジェットでコレクションを受け取る)）。
 
 ### ガジェットの一覧をコレクションとして表示する（collection）
 
@@ -59,20 +84,36 @@
 
 ```yaml
 - def: gadget
-  name: Involved                 # 人物のページの「関与した裁判」
+  name: FirstAscents             # 人物のページの「初登頂した山」
   collection:
-    var: judge                   # コレクションの要素にする列（SPARQL の変数名）
-    class: caselawo:Trial        # 要素のクラス。そのクラスのコレクションのページで表示する
-    title: 関与した裁判           # コレクションのページの見出し（「尾島明: 関与した裁判」）
-    label: 関与した裁判をコレクションとして表示   # ボタンの文字
+    var: entity                  # コレクションの要素にする列（SPARQL の変数名）
+    class: dbo:Mountain          # 要素のクラス。そのクラスのコレクションのページで表示する
+    title: 初登頂した山           # コレクションのページの見出し（「Edward_Whymper: 初登頂した山」）
+    label: コレクションとして表示  # ボタンの文字（省略可）
   get:
     type: sparql
     src: |
-      select distinct ?caseno ?casename ?role ?judge where { ... $uri ... }
+      SELECT DISTINCT ?entity ?label ?firstAscent
+      WHERE {
+        ?entity dbo:firstAscentPerson $uri ;
+                rdfs:label ?label .
+        FILTER(LANG(?label) = "en")
+        OPTIONAL { ?entity dbo:firstAscentYear ?firstAscent }
+      }
 ```
 
 - ボタンのリンク先は `/collection?from=<ガジェット名>&uri=<表示中のリソース>&class=<クラス>` です。
-- `var` の代わりに `facet: <ファセット名>` を書くと、表示中のリソースをそのファセットの値として絞り込んだコレクションへ移ります（例: タームのページ → そのタームの判決文書。移った先で他のタームを加えられます）。
+- `var` の代わりに `facet: <ファセット名>` を書くと、表示中のリソースをそのファセットの値として絞り込んだコレクションへ移ります（例: 山脈のページ → `facet: range` で、その山脈の山のコレクション。移った先で国や標高の条件を加えられます）。
+
+```yaml
+- def: gadget
+  name: MountainsInRange         # 山脈のページの「この山脈の山」
+  collection:
+    facet: range                 # /collection?class=dbo:Mountain&f.range=<表示中の山脈>
+    class: dbo:Mountain
+    label: 山のコレクションで絞り込む
+```
+
 - ガジェットの SPARQL をそのまま副問い合わせとして使います（`$uri` には表示中のリソースが入ります）。
 - `class` を省略すると、組み込みのページ（名前とURIの一覧）で表示します。
 - `view: <ページ名>` を書くと、そのコレクションのページで表示します（`query` で集合を定義したページなど。`facet` と組み合わせると `/collection?view=<ページ名>&f.<ファセット>=<表示中のリソース>`）。
@@ -83,15 +124,15 @@
 
 ```yaml
 columns:
-  - id: casecategorylabel        # 表示するのはラベル
-    label: 事件区分
+  - id: countryLabel             # 表示するのはラベル
+    label: 国
     collection:
-      class: caselawo:Trial      # 移り先のコレクションのクラス（view: でページ名の指定も可）
-      facet: trial_case_category # 絞り込むファセットの名前（そのページにあるファセット）
-      value: casecategory        # ファセットの値にする変数（省略時はこの列の値）
+      class: dbo:Mountain        # 移り先のコレクションのクラス（view: でページ名の指定も可）
+      facet: country             # 絞り込むファセットの名前（そのページにあるファセット）
+      value: country             # ファセットの値にする変数（省略時はこの列の値）
 ```
 
-リンク先は `/collection?class=caselawo:Trial&f.trial_case_category=<値>` です。移り先ではファセットがチェック済みになり、条件の ✕ で外したり、他の条件と組み合わせたりできます。
+リンク先は `/collection?class=dbo:Mountain&f.country=<値>` です。移り先ではファセットがチェック済みになり、条件の ✕ で外したり、他の条件と組み合わせたりできます。
 現在の条件の値が IRI のときは、そのラベル（ファセットの `label_predicate`、既定 `rdfs:label`）を表示します。
 
 ### ページの選び方
@@ -116,7 +157,7 @@ columns:
 
 ```yaml
 - def: gadget
-  name: mountain_list
+  name: MountainList
   title: 山の一覧            # 見出し（省略時はガジェット名）
   get:
     type: sparql
@@ -132,7 +173,7 @@ columns:
     type: htable
 ```
 
-- `$collection` を書かない場合は、最初の `WHERE {` の直後に入ります。
+- `$collection` を書かない場合は、最初の `WHERE {` の直後に入ります。コレクションを持つページでは、すべてのガジェットにコレクションが渡されるので、コレクションと関係のないガジェット（表示中のリソースの `?p ?o` の一覧など）を置くと、コレクションの要素の数だけ行が増えてしまいます。そのようなガジェットはコレクションのないページに置いてください。
 - `page_size` を指定すると、コレクションの要素をその件数ずつに区切り、ページ送りを表示します（表自身のページ送りは使いません）。
 - 1つのエンティティに複数の値（例: 複数の国）があると、SPARQL の結果は値ごとに別の行になります。`show` に `group_by: entity` を指定すると、同じエンティティの行を1行にまとめ、複数の値を1つのセルに並べて表示します。
 - 1つのガジェットで取得する行数には上限があります（既定 5000 行）。設定 `- max_rows: 10000` で変更できます。上限を超えた場合はその旨を表示します。
@@ -141,7 +182,7 @@ columns:
 
 ```yaml
 - def: gadget
-  name: mountain_facet
+  name: facet_country
   height: 240               # 候補リストの高さ（px）
   get:
     type: facet
@@ -208,7 +249,7 @@ columns:
 
 ```yaml
 - def: gadget
-  name: mountain_elevation_facet
+  name: facet_elevation
   get:
     type: facet
     kind: range
@@ -226,6 +267,31 @@ columns:
 - 数値にできない値（表記ゆれのある文字列など）は、範囲・分布の計算から除きます。
 - 片側だけの指定もできます（例: 下限だけ → 「4000 以上」）。
 
+## 検索結果もコレクション（/search と q）
+
+検索結果は「ラベルに検索語を含むリソース」のコレクションとして表示します（2026.10.19）。
+
+- `/search?q=<検索語>`：組み込みの検索結果のページ。左の列に種類（`rdf:type`）のファセット、右に一覧（名前・種類・URI）を出します。件数・ページ送り・現在の条件は、ほかのコレクションのページと同じです。
+- 種類のファセットでクラスを1つ選ぶと、そのクラスのコレクションのページ `/collection?class=<クラス>&q=<検索語>` に移ります。検索語とほかの条件はそのまま引き継ぎます。
+- どのコレクションのページでも、`q=<検索語>` で絞り込めます。ページの先頭には「この中を検索」の入力欄が出ます。
+- 検索語の条件は、ラベル（設定の `label`。既定は `rdfs:label`）で探します。Virtuoso の全文索引（`bif:contains`）が使えれば先にそれで絞り、`CONTAINS` で確かめます。全文索引で1件も見つからないときは、`CONTAINS` だけで探し直します（設定 `text_search` が `auto` のとき）。
+- rdf:type の無いリソースは種類のファセットに出ません。
+
+## 名前を付けて保存する・読み込む・まとめる（2026.10.19）
+
+コレクションのページの先頭の「名前を付けて保存」で、いまのコレクション（ファセット・検索語で絞り込んだもの）の要素を保存します。
+
+- 保存するのはその時点の要素（URI）の写しです。後でデータが変わっても、保存したものは変わりません。元のページの URL も記録します。
+- 保存したものは `/collection?saved=<名前>` で読み込みます。保存したときのクラスのコレクションのページ（クラスが無ければ組み込みのページ）で表示し、ファセットでさらに絞り込めます。
+- `/collections`（ナビゲーションの「保存したコレクション」）に一覧を出します。選んだ2つ以上のコレクションを、和（どれかに含まれる）・積（すべてに含まれる）・差（最初のものから残りに含まれるものを除く）でまとめて、新しい名前で保存できます。消すこともできます。
+- 名前には、文字・数字と `_ - ー ・ ( )` を使えます（60字まで）。同じ名前は「上書き」を選んだときだけ保存し直します。
+- 保存できる要素の数には上限があります（既定 10000 件）。多いものは絞り込んでから保存してください。
+
+| 設定 | 既定 | 内容 |
+| --- | --- | --- |
+| `saved_collections_dir` | 設定ファイルのフォルダの `saved_collections` | 保存するフォルダ（`<名前>.json`） |
+| `saved_collection_max` | 10000 | 保存できる要素の数の上限 |
+
 ## URL パラメータ
 
 | パラメータ | 内容 |
@@ -235,6 +301,8 @@ columns:
 | `from=<ガジェット名>` / `uri=<URI>` | ガジェットの一覧をコレクションとして表示 |
 | `f.<name>=<値>` | 値の選択。繰り返すと OR |
 | `f.<name>.min=<下限>` / `f.<name>.max=<上限>` | 範囲 |
+| `saved=<名前>` | 名前を付けて保存したコレクション |
+| `q=<検索語>` | ラベルに検索語を含むものに絞る（空白で区切ると、すべての語を含むもの）。`mode=perfect` なら完全一致 |
 | `page=<番号>` | ページ送り（1始まり） |
 | `tab=<番号>` | 表示するタブ（0始まり） |
 

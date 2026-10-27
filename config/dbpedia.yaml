@@ -1,271 +1,857 @@
+# DBpedia を使った KGraphNavi のサンプル設定
+#
+# 山（dbo:Mountain）を中心に、山脈・国・人物・クラス（DBpedia オントロジー）のページと、
+# 山のコレクション（ファセットでの絞り込み・統計）を定義しています。
+# KGraphNavi の主な機能を、公開の SPARQL エンドポイント（https://dbpedia.org/sparql）で試せます。
+#
+#   kgraphnavi config/dbpedia.yaml
+#   → http://127.0.0.1:8000/
+#
+# 使っている機能（説明は docs/config.md・docs/collection.md）
+#   リソースのページ ......... Mountain / MountainRange / Country / Person / Class / Resource（type: '*'）
+#   タブ（tabs） ............. Mountain・Class・コレクションのページ
+#   縦・横の表（vtable/htable） 列の link / string / display: localname / image / directlink / collection
+#   行をまとめる（group_by）.. 山の一覧（複数の国にまたがる山）
+#   階層表示（tree） ......... Overview の「クラス階層」
+#   コレクション ............. AlpsMountains（query で定義）/ MountainCollection（class: dbo:Mountain）
+#   ファセット ............... 国（いずれか／すべて）・山脈（候補の検索）・標高（範囲）・初登頂の年（範囲）
+#   一覧をコレクションへ ..... 「同じ山脈の山」「初登頂した山」（collection: var）
+#   ファセットで絞り込んで移る 山脈・国のページ（collection: facet）
+#   クラスのインスタンス ..... Class（collection: instances）
+#   グラフ（chart） .......... 国別・山脈別の山の数
+#   全体のページ（/graph） ... Overview（type: graph）
+#   トピック（/topic） ....... キーワード（例: stratovolcano）から、語とカテゴリでコレクションを作る（topic:）
+#   並べて比べる（/compare） . 2〜4 の山を列に並べ、カテゴリの共通・違いを見る（compare:）
+#   固定の一覧（get: list） .. Overview の「リンク」
+#
+# DBpedia は大きな知識グラフなので、集計の重い問い合わせは時間がかかったり、
+# エンドポイントの制限（実行時間・行数）で失敗したりすることがあります。
+
 -   title: DBpedia
+-   describe: DBpedia（Wikipedia から作られた知識グラフ）の山・山脈・国・人物を例に、KGraphNavi の主な機能を試すためのサンプルです。全体の集計とクラス階層は /graph にあります。
 -   sparql_endpoint: "https://dbpedia.org/sparql"
--   prefixes:
-        skos: http://www.w3.org/2004/02/skos/core#
-        dct:  http://purl.org/dc/terms/
-        foaf: http://xmlns.com/foaf/0.1/
-        rdf: http://www.w3.org/1999/02/22-rdf-syntax-ns#
-        rdfs: http://www.w3.org/2000/01/rdf-schema#
-        dbp: http://dbpedia.org/property/
-        dbo: http://dbpedia.org/ontology/
-        dbc: "http://dbpedia.org/resource/Category:"
-        
--   describe: DBpedia
 -   rdfstore: virtuoso
 -   label: rdfs:label
+-   label_lang: en          # 組み込みのコレクションのページで使うラベルの言語
+-   text_search: auto       # ファセットの候補の検索: auto（bif:contains が使えれば使う）/ bif / contains
+-   max_rows: 2000          # 1つのガジェットで取得する行数の上限（既定 5000）
+# キーワードからトピックのコレクションを作る（/topic?q=stratovolcano。kgraphnavi/topic.py、docs/topic.md。2026.10.26）
+#   種の要素 = ラベルか英語の要約にキーワードがある記事。リンク = カテゴリ（dct:subject）と山脈・所在地。
+#   偏りの大きいカテゴリ（Stratovolcanoes of Japan など）は「主なリンク」として、語の無い記事もトピックに入れる
+-   topic:
+        text_properties: [rdfs:label, dbo:abstract]
+        lang: en
+        link_properties: [dct:subject, dbo:mountainRange, dbo:locatedInArea]
+        total: 6000000      # 全体の記事の数（およそ）。カテゴリの偏りの目安に使う
+        seed_max: 2000
+# 少数（2〜4）のリソースを列に並べて比べる（/compare?uri=A&uri=B…。kgraphnavi/compare.py、docs/compare.md。2026.10.27）
+#   山のコレクションの一覧で「比べる」の列にチェックを入れて「並べて比べる」、または URL で直接。
+#   gadget の行は各列にそのガジェットの表、align の行はその変数の値で行をそろえて、どの山にあるか（違う行を色付け）
+#   比べ方の無いクラスは、組み込みの比べ方（プロパティごとに値を並べ、違う値を色付け）
+-   compare:
+        - name: 山
+          title: 山（概要・カテゴリ・山脈）
+          types: [dbo:Mountain]
+          rows:
+              - gadget: MountainProfile
+                title: 概要
+                columns: [label_ja, elevation, prominence, rangeLabel, countryLabel, firstAscent, personLabel, thumbnail]
+              - gadget: Categories
+                title: Wikipedia のカテゴリ（行をそろえる）
+                align: subject
+              - gadget: SameRange
+                title: 同じ山脈の山
+-   prefixes:
+        dbo: "http://dbpedia.org/ontology/"
+        dbp: "http://dbpedia.org/property/"
+        dbr: "http://dbpedia.org/resource/"
+        dbc: "http://dbpedia.org/resource/Category:"
+        dct: "http://purl.org/dc/terms/"
+        foaf: "http://xmlns.com/foaf/0.1/"
 -   sample:
-      resource:
-        - http://dbpedia.org/resource/Mount_Fuji
-        - http://dbpedia.org/resource/Mont_Blanc
-        - http://dbpedia.org/resource/Matterhorn
-      collection:
-        - http://dbpedia.org/ontology/Mountain,AlpsMountains
-      search:
-        - Ohtani
+        search:
+            - Matterhorn
+        resource:
+            - http://dbpedia.org/resource/Matterhorn,マッターホルン（山）
+            - http://dbpedia.org/resource/Mont_Blanc,モンブラン（山）
+            - http://dbpedia.org/resource/Mount_Fuji,富士山（山）
+            - http://dbpedia.org/resource/Pennine_Alps,ペンニネアルプス（山脈）
+            - http://dbpedia.org/resource/Switzerland,スイス（国）
+            - http://dbpedia.org/resource/Edward_Whymper,エドワード・ウィンパー（人物。マッターホルンの初登頂者）
+            - http://dbpedia.org/ontology/Mountain,dbo:Mountain（クラス。インスタンスの集計）
+            - http://dbpedia.org/ontology/Volcano,dbo:Volcano（クラス。インスタンスの集計）
+        collection:
+            - AlpsMountains,アルプスの山（ページ名を指定。一覧の「比べる」で選んで並べて比べられる）
+            - http://dbpedia.org/ontology/Mountain,山（クラス dbo:Mountain）
+            - http://dbpedia.org/ontology/Glacier,氷河（ページの定義がないクラス → 組み込みのページ）
+# リソースに rdf:type が複数あるとき、ページを選ぶクラスの優先順（完全なIRIで書く）
 -   priority:
         - http://dbpedia.org/ontology/Mountain
-        - http://dbpedia.org/ontology/Organisation
+        - http://dbpedia.org/ontology/MountainRange
+        - http://dbpedia.org/ontology/Country
+        - http://dbpedia.org/ontology/Person
+        - http://www.w3.org/2002/07/owl#Class
+
+# ------------------------------------------------------------------
+# リソースのページ（/resource?uri=...）
+# ------------------------------------------------------------------
 -   def: page
     name: Mountain
-    type: http://dbpedia.org/ontology/Mountain
-    gadget:
-        - MountainH
-        - MountainV
+    type: dbo:Mountain
+    tabs:
+        - label: 概要
+          gadget:
+            - MountainProfile
+            - Abstract
+        - label: 同じ山脈の山
+          gadget:
+            - SameRange
+        - label: すべてのデータ
+          gadget:
+            - Out
+            - In
 -   def: page
-    name: MountainCollection
+    name: MountainRange
+    type: dbo:MountainRange
+    gadget:
+        - Abstract
+        - MountainsInRange
+        - Out
+-   def: page
+    name: Country
+    type: dbo:Country
+    gadget:
+        - CountryProfile
+        - MountainsInCountry
+-   def: page
+    name: Person
+    type: dbo:Person
+    gadget:
+        - PersonProfile
+        - FirstAscents
+        - Abstract
+-   def: page
+    name: Class
+    type: owl:Class
+    collection: instances     # 表示しているクラスのインスタンスをコレクションにする（$collection が使える）
+    # このページのガジェットにはすべてコレクションが渡される（$collection がなければ WHERE の先頭に入る）。
+    # コレクションを使わないガジェット（Out など）は置かない
+    tabs:
+        - label: インスタンス
+          gadget:
+            - ClassInstances
+        - label: 国別
+          gadget:
+            - CountryBar
+-   def: page
+    name: Resource
+    type: '*'                 # 対応するページのないリソース
+    gadget:
+        - Out
+        - In
+
+# ------------------------------------------------------------------
+# コレクションのページ（/collection?...）
+# ------------------------------------------------------------------
+-   def: page
+    name: AlpsMountains       # /collection?view=AlpsMountains
+    type: collection
+    query: |
+        SELECT ?uri
+        WHERE {
+            ?uri a dbo:Mountain ;
+                 dct:subject dbc:Mountains_of_the_Alps .
+        }
+    sidebar:
+        - facet_country
+        - facet_range
+        - facet_elevation
+        - facet_first_ascent
+    tabs:
+        - label: 一覧
+          gadget:
+            - MountainList
+        - label: 国別
+          gadget:
+            - CountryPie
+        - label: 山脈別
+          gadget:
+            - RangeBar
+-   def: page
+    name: MountainCollection  # /collection?class=dbo:Mountain（dbo:Mountain の下位クラスにも使われる）
     type: collection
     class: dbo:Mountain
-    query: |
-      SELECT ?uri
-      WHERE {
-        ?uri rdf:type dbo:Mountain .
-        ?uri dct:subject dbc:Mountains_of_the_Alps .
-      }
+    sidebar:
+        - facet_country
+        - facet_range
+        - facet_elevation
+        - facet_first_ascent
+    tabs:
+        - label: 一覧
+          gadget:
+            - MountainList
+        - label: 国別
+          gadget:
+            - CountryBar
+        - label: 山脈別
+          gadget:
+            - RangeBar
+
+# ------------------------------------------------------------------
+# 知識グラフ全体のページ（/graph）
+# ------------------------------------------------------------------
+-   def: page
+    name: Overview
+    type: graph
     gadget:
-        - mountain_facet
-        - mountain_range_facet
-        - mountain_elevation_facet
-        - mountain_list
+        - Links
+        - RangeRanking
+        - NaturalPlaceTree
+
+# ------------------------------------------------------------------
+# リソースのページのガジェット（$uri は表示中のリソース）
+# ------------------------------------------------------------------
 -   def: gadget
-    name: mountain_list
-    title: 山の一覧
+    name: MountainProfile
+    title: 山の概要
     get:
         type: sparql
-        page_size: 20
         src: |
-            SELECT DISTINCT ?entity ?label ?country ?elevation ?thumbnail
+            SELECT ?label_ja ?elevation ?prominence ?range ?rangeLabel ?country ?countryLabel
+                   ?firstAscent ?person ?personLabel ?thumbnail ?wikipedia
             WHERE {
-                ?entity rdfs:label ?label .
-                FILTER(lang(?label) = "en")
+                OPTIONAL { $uri rdfs:label ?label_ja . FILTER(LANG(?label_ja) = "ja") }
+                OPTIONAL { $uri dbo:elevation ?elevation }
+                OPTIONAL { $uri dbo:prominence ?prominence }
                 OPTIONAL {
-                ?entity dbo:country ?country .
+                    $uri dbo:mountainRange ?range .
+                    OPTIONAL { ?range rdfs:label ?rangeLabel . FILTER(LANG(?rangeLabel) = "en") }
                 }
                 OPTIONAL {
-                ?entity dbo:elevation ?elevation .
+                    $uri dbo:country ?country .
+                    OPTIONAL { ?country rdfs:label ?countryLabel . FILTER(LANG(?countryLabel) = "en") }
                 }
+                OPTIONAL { $uri dbo:firstAscentYear ?firstAscent }
                 OPTIONAL {
-                ?entity dbo:thumbnail ?thumbnail .
+                    $uri dbo:firstAscentPerson ?person .
+                    OPTIONAL { ?person rdfs:label ?personLabel . FILTER(LANG(?personLabel) = "en") }
                 }
+                OPTIONAL { $uri dbo:thumbnail ?thumbnail }
+                OPTIONAL { $uri foaf:isPrimaryTopicOf ?wikipedia }
             }
+            LIMIT 1
+    show:
+        type: vtable
+        attribute_width: 160
+        value_width: 520
+        columns:
+            - id: label_ja
+              label: 日本語名
+            - id: elevation
+              label: 標高（m）
+            - id: prominence
+              label: プロミネンス（m）
+            - id: rangeLabel          # 表示はラベル、リンク先は山脈のページ
+              label: 山脈
+              link: range
+            - id: countryLabel        # リンク先は、その国の山のコレクション（ファセット country で絞り込み）
+              label: 国
+              collection:
+                class: dbo:Mountain
+                facet: country
+                value: country
+            - id: firstAscent
+              label: 初登頂の年
+            - id: personLabel
+              label: 初登頂者
+              link: person
+            - id: thumbnail
+              label: 画像
+              type: image
+              width: 400
+            - id: wikipedia
+              label: Wikipedia
+              type: directlink
+-   def: gadget
+    name: Abstract
+    title: 説明
+    height: 300
+    get:
+        type: sparql
+        src: |
+            SELECT ?lang ?abstract
+            WHERE {
+                $uri dbo:abstract ?abstract .
+                BIND(LANG(?abstract) AS ?lang)
+                FILTER(?lang IN ("ja", "en"))
+            }
+            ORDER BY DESC(?lang)
+    show:
+        type: htable
+        columns:
+            - id: lang
+              label: 言語
+              width: 60
+            - id: abstract
+              label: 説明
+              width: 900
+-   def: gadget
+    name: CountryProfile
+    title: 国
+    get:
+        type: sparql
+        src: |
+            SELECT ?country ?label ?label_ja ?capital ?capitalLabel ?population ?flag ?wikipedia
+            WHERE {
+                BIND($uri AS ?country)
+                OPTIONAL { $uri rdfs:label ?label . FILTER(LANG(?label) = "en") }
+                OPTIONAL { $uri rdfs:label ?label_ja . FILTER(LANG(?label_ja) = "ja") }
+                OPTIONAL {
+                    $uri dbo:capital ?capital .
+                    OPTIONAL { ?capital rdfs:label ?capitalLabel . FILTER(LANG(?capitalLabel) = "en") }
+                }
+                OPTIONAL { $uri dbo:populationTotal ?population }
+                OPTIONAL { $uri dbo:thumbnail ?flag }
+                OPTIONAL { $uri foaf:isPrimaryTopicOf ?wikipedia }
+            }
+            LIMIT 1
+    show:
+        type: vtable
+        attribute_width: 160
+        value_width: 520
+        columns:
+            - id: label               # 国のページへのリンク
+              label: 国名
+              link: country
+            - id: label_ja
+              label: 日本語名
+            - id: capitalLabel
+              label: 首都
+              link: capital
+            - id: population
+              label: 人口
+            - id: flag
+              label: 画像
+              type: image
+              width: 200
+            - id: wikipedia
+              label: Wikipedia
+              type: directlink
+-   def: gadget
+    name: Categories
+    title: Wikipedia のカテゴリ
+    get:
+        type: sparql
+        src: |
+            SELECT ?subject WHERE { $uri dct:subject ?subject } ORDER BY ?subject
+    show:
+        type: htable
+        columns:
+            - id: subject
+              label: カテゴリ
+              type: link
+              display: localname
+              width: 400
+-   def: gadget
+    name: SameRange
+    title: 同じ山脈の山
+    # 見出しの横に「コレクションとして表示」のボタンを出す。押すと entity の列を要素とする
+    # コレクションを、dbo:Mountain のコレクションのページ（MountainCollection）で表示する
+    collection:
+        var: entity
+        class: dbo:Mountain
+        title: 同じ山脈の山
+        label: コレクションとして表示（絞り込み・統計）
+    get:
+        type: sparql
+        src: |
+            SELECT DISTINCT ?entity ?label ?elevation ?country
+            WHERE {
+                $uri dbo:mountainRange ?range .
+                ?entity dbo:mountainRange ?range ;
+                        rdfs:label ?label .
+                FILTER(LANG(?label) = "en")
+                OPTIONAL { ?entity dbo:elevation ?elevation }
+                OPTIONAL { ?entity dbo:country ?country }
+            }
+            ORDER BY DESC(?elevation)
+    show:
+        type: htable
+        group_by: entity          # 国が複数ある山を1行にまとめる
+        columns:
+            - id: label
+              label: 山
+              link: entity
+              width: 250
+            - id: elevation
+              label: 標高（m）
+              width: 100
+            - id: country
+              label: 国
+              type: link
+              display: localname
+              width: 250
+-   def: gadget
+    name: MountainsInRange
+    title: この山脈の山
+    # 押すと、この山脈をファセット range の値として絞り込んだ山のコレクションへ移る
+    # （/collection?class=dbo:Mountain&f.range=<この山脈>。移った先で他の条件を加えられる）
+    collection:
+        facet: range
+        class: dbo:Mountain
+        label: 山のコレクションで絞り込む
+    get:
+        type: sparql
+        src: |
+            SELECT DISTINCT ?entity ?label ?elevation ?firstAscent
+            WHERE {
+                ?entity dbo:mountainRange $uri ;
+                        rdfs:label ?label .
+                FILTER(LANG(?label) = "en")
+                OPTIONAL { ?entity dbo:elevation ?elevation }
+                OPTIONAL { ?entity dbo:firstAscentYear ?firstAscent }
+            }
+            ORDER BY DESC(?elevation)
     show:
         type: htable
         group_by: entity
         columns:
-        - id: entity
-          type: link
-          string: "?label"
-          href: "?entity"
-          label: "Mountain"
-          width: 200
-        - id: country
-          type: link
-          display: localname
-          label: "Country"
-        - id: elevation
-          type: literal
-          label: "Elevation"
-          width: 80
-        - id: thumbnail
-          type: image
-          label: "Image"
-          width: 120
+            - id: label
+              label: 山
+              link: entity
+              width: 250
+            - id: elevation
+              label: 標高（m）
+              width: 100
+            - id: firstAscent
+              label: 初登頂の年
+              width: 100
 -   def: gadget
-    name: mountain_facet
-    height: 240
-    get:
-      type: facet
-      name: country
-      label: 国
-      predicate: http://dbpedia.org/ontology/country
-      value_type: iri
-      lang: en
-      limit: 30
-    show:
-      type: facet
--   def: gadget
-    name: mountain_elevation_facet
-    get:
-      type: facet
-      kind: range
-      name: elevation
-      label: 標高（m）
-      predicate: dbo:elevation
-      datatype: decimal
-      bins: 20
-    show:
-      type: facet
--   def: gadget
-    name: mountain_range_facet
-    height: 240
-    get:
-      type: facet
-      name: range
-      label: 山脈
-      predicate: dbo:mountainRange
-      value_type: iri
-      lang: en
-      limit: 30
-    show:
-      type: facet
--   def: page
-    name: Organisation
-    type: http://dbpedia.org/ontology/Organisation
-    gadget:
-        - Organisation
--   def: page
-    name: Country
-    type: http://dbpedia.org/ontology/Country
-    gadget:
-        - Out
-        - In
--   def: page
-    name: SportsEvent
-    type: http://dbpedia.org/ontology/Event
-    gadget:
-        - Champion
--   def: page
-    name: Resource
-    type: '*'
-    gadget:
-        - Resource
--   def: gadget
-    name: Resource
+    name: MountainsInCountry
+    title: この国の山（標高の高い順に200件）
+    collection:
+        facet: country
+        class: dbo:Mountain
+        label: 山のコレクションで絞り込む
     get:
         type: sparql
         src: |
-            select ?p ?o where {
-                $uri ?p ?o}
-    show: 
-        type: htable
--   def: gadget
-    name: MountainV
-    get:
-        type: sparql
-        src: |
-            SELECT ?country ?elevation ?thumbnail WHERE {
-                $uri dbo:thumbnail ?thumbnail .
-                OPTIONAL { $uri dbp:country ?country }
-                OPTIONAL { $uri dbp:prominenceM ?p }
-                OPTIONAL { $uri dbp:elevationM ?e }
-                BIND(COALESCE(?p, ?e) AS ?elevation)
+            SELECT ?entity (SAMPLE(?l) AS ?label) (MAX(?e) AS ?elevation) (SAMPLE(?r) AS ?range)
+            WHERE {
+                ?entity a dbo:Mountain ;
+                        dbo:country $uri ;
+                        rdfs:label ?l .
+                FILTER(LANG(?l) = "en")
+                OPTIONAL { ?entity dbo:elevation ?e }
+                OPTIONAL { ?entity dbo:mountainRange ?r }
             }
-    show: 
-        type: vtable
-        attribute_width: 180
-        value_width: 400
+            GROUP BY ?entity
+            ORDER BY DESC(?elevation)
+            LIMIT 200
+    show:
+        type: htable
         columns:
-            - id: country
+            - id: label
+              label: 山
+              link: entity
+              width: 250
+            - id: elevation
+              label: 標高（m）
+              width: 100
+            - id: range
+              label: 山脈
               type: link
               display: localname
-            - id: elevation
-            - id: thumbnail
-              type: image
+              width: 250
 -   def: gadget
-    name: MountainH
+    name: PersonProfile
+    title: 人物
     get:
         type: sparql
         src: |
-            SELECT ?country ?elevation ?thumbnail WHERE {
-                $uri dbo:thumbnail ?thumbnail .
-                OPTIONAL { $uri dbp:country ?country }
-                OPTIONAL { $uri dbp:prominenceM ?p }
-                OPTIONAL { $uri dbp:elevationM ?e }
-                BIND(COALESCE(?p, ?e) AS ?elevation)
+            SELECT ?label_ja ?birthDate ?deathDate ?thumbnail ?wikipedia
+            WHERE {
+                OPTIONAL { $uri rdfs:label ?label_ja . FILTER(LANG(?label_ja) = "ja") }
+                OPTIONAL { $uri dbo:birthDate ?birthDate }
+                OPTIONAL { $uri dbo:deathDate ?deathDate }
+                OPTIONAL { $uri dbo:thumbnail ?thumbnail }
+                OPTIONAL { $uri foaf:isPrimaryTopicOf ?wikipedia }
             }
-    show: 
+            LIMIT 1
+    show:
+        type: vtable
+        attribute_width: 160
+        value_width: 520
+        columns:
+            - id: label_ja
+              label: 日本語名
+            - id: birthDate
+              label: 生年月日
+            - id: deathDate
+              label: 没年月日
+            - id: thumbnail
+              label: 画像
+              type: image
+              width: 200
+            - id: wikipedia
+              label: Wikipedia
+              type: directlink
+-   def: gadget
+    name: FirstAscents
+    title: 初登頂した山
+    collection:
+        var: entity
+        class: dbo:Mountain
+        title: 初登頂した山
+    get:
+        type: sparql
+        src: |
+            SELECT DISTINCT ?entity ?label ?firstAscent ?elevation
+            WHERE {
+                ?entity dbo:firstAscentPerson $uri ;
+                        rdfs:label ?label .
+                FILTER(LANG(?label) = "en")
+                OPTIONAL { ?entity dbo:firstAscentYear ?firstAscent }
+                OPTIONAL { ?entity dbo:elevation ?elevation }
+            }
+            ORDER BY ?firstAscent
+    show:
         type: htable
         columns:
-            - id: country
+            - id: label
+              label: 山
+              link: entity
+              width: 250
+            - id: firstAscent
+              label: 初登頂の年
+              width: 100
+            - id: elevation
+              label: 標高（m）
+              width: 100
+-   def: gadget
+    name: NaturalPlaceTree
+    title: 自然の場所（dbo:NaturalPlace）のクラス階層
+    # クラス階層を、親（rdfs:subClassOf）の下に子を字下げして表示する。▾／▸ で折りたためる
+    get:
+        type: sparql
+        src: |
+            SELECT DISTINCT ?class ?parent ?label
+            WHERE {
+                ?class rdfs:subClassOf* dbo:NaturalPlace .
+                OPTIONAL {
+                    ?class rdfs:subClassOf ?parent .
+                    ?parent rdfs:subClassOf* dbo:NaturalPlace .
+                }
+                OPTIONAL { ?class rdfs:label ?label . FILTER(LANG(?label) = "en") }
+            }
+    show:
+        type: htable
+        group_by: class           # 親が複数あるクラスは1行に（階層では最初の親の下に置く）
+        tree:
+            node: class           # 行の識別子
+            parent: parent        # 親の識別子
+            column: label         # 字下げ・折りたたみの印を付ける列
+            strip_parent: false
+        columns:
+            - id: label
+              label: クラス
+              link: class
+              width: 300
+            - id: class
+              label: IRI
+              width: 400
+-   def: gadget
+    name: ClassInstances
+    title: インスタンス
+    get:
+        type: sparql
+        page_size: 50             # コレクションの要素を50件ずつ表示し、ページ送りを付ける
+        src: |
+            SELECT ?entity (SAMPLE(?l) AS ?label)
+            WHERE {
+                $collection
+                OPTIONAL { ?entity rdfs:label ?l . FILTER(LANG(?l) = "en") }
+            }
+            GROUP BY ?entity
+            ORDER BY ?entity
+    show:
+        type: htable
+        columns:
+            - id: label
+              label: 名前
+              link: entity
+              width: 300
+            - id: entity
+              label: IRI
+              width: 500
+-   def: gadget
+    name: Out
+    title: このリソースから出るリンク・値
+    get:
+        type: sparql
+        src: |
+            SELECT ?p ?o ?oiri
+            WHERE {
+                $uri ?p ?o .
+                FILTER(!isLiteral(?o) || LANG(?o) = "" || LANGMATCHES(LANG(?o), "en") || LANGMATCHES(LANG(?o), "ja"))
+                BIND(IF(isIRI(?o), ?o, ?unbound) AS ?oiri)
+            }
+            LIMIT 500
+    show:
+        type: htable
+        columns:
+            - id: p
+              label: プロパティ
+              type: link
+              display: localname
+              width: 220
+            - id: o                   # IRI ならそのページへのリンク、リテラルはそのまま
+              label: 値
+              link: oiri
+              width: 700
+-   def: gadget
+    name: In
+    title: このリソースへのリンク（200件まで）
+    get:
+        type: sparql
+        src: |
+            SELECT ?s ?p
+            WHERE {
+                ?s ?p $uri .
+            }
+            LIMIT 200
+    show:
+        type: htable
+        columns:
+            - id: s
+              label: リソース
+              type: link
+              display: localname
+              width: 400
+            - id: p
+              label: プロパティ
+              display: localname
+              width: 220
+
+# ------------------------------------------------------------------
+# ファセット（コレクションのページの左の列）
+# ------------------------------------------------------------------
+-   def: gadget
+    name: facet_country
+    height: 240
+    get:
+        type: facet
+        name: country             # URL パラメータ f.country
+        label: 国
+        predicate: dbo:country
+        value_type: iri
+        lang: en                  # 候補のラベルの言語
+        limit: 30
+        match: selectable         # 「いずれか」「すべて」を画面で切り替える（国境の山は「すべて」で）
+    show:
+        type: facet
+-   def: gadget
+    name: facet_range
+    height: 240
+    get:
+        type: facet
+        name: range
+        label: 山脈
+        predicate: dbo:mountainRange
+        value_type: iri
+        lang: en
+        limit: 30
+        search: true              # 候補をラベルで検索する欄を出す
+    show:
+        type: facet
+-   def: gadget
+    name: facet_elevation
+    get:
+        type: facet
+        kind: range               # 範囲のファセット（分布の棒グラフ・下限と上限）
+        name: elevation
+        label: 標高（m）
+        predicate: dbo:elevation
+        datatype: double
+        bins: 20
+    show:
+        type: facet
+-   def: gadget
+    name: facet_first_ascent
+    get:
+        type: facet
+        kind: range
+        name: first_ascent
+        label: 初登頂の年
+        predicate: dbo:firstAscentYear
+        datatype: gYear           # 年（先頭の4桁）で比べる
+        bins: 20
+    show:
+        type: facet
+
+# ------------------------------------------------------------------
+# コレクションのガジェット（$collection の要素が ?entity に入る）
+# ------------------------------------------------------------------
+-   def: gadget
+    name: MountainList
+    title: 山の一覧
+    get:
+        type: sparql
+        page_size: 50
+        src: |
+            SELECT ?entity ?label ?elevation ?country ?range ?firstAscent ?thumbnail
+            WHERE {
+                $collection
+                OPTIONAL { ?entity rdfs:label ?label . FILTER(LANG(?label) = "en") }
+                OPTIONAL { ?entity dbo:elevation ?elevation }
+                OPTIONAL { ?entity dbo:country ?country }
+                OPTIONAL { ?entity dbo:mountainRange ?range }
+                OPTIONAL { ?entity dbo:firstAscentYear ?firstAscent }
+                OPTIONAL { ?entity dbo:thumbnail ?thumbnail }
+            }
+    show:
+        type: htable
+        group_by: entity          # 国・山脈が複数ある山を1行にまとめる
+        columns:
+            - id: label
+              label: 山
+              link: entity
+              width: 220
+            - id: elevation
+              label: 標高（m）
+              width: 90
+            - id: country             # 値をクリックすると、その国で絞り込んだコレクションへ
+              label: 国
+              display: localname
+              collection:
+                facet: country
+                class: dbo:Mountain
+              width: 180
+            - id: range
+              label: 山脈
               type: link
               display: localname
               width: 200
-            - id: elevation
-              width: 50
+            - id: firstAscent
+              label: 初登頂の年
+              width: 90
             - id: thumbnail
+              label: 画像
               type: image
-              width: 600
+              width: 100
 -   def: gadget
-    name: Organisation
+    name: CountryPie
+    title: 国別の山の数（上位12か国）
     get:
         type: sparql
         src: |
-            SELECT ?name ?homepage ?locationCountry ?thumbnail WHERE {
-                $uri dbo:thumbnail ?thumbnail .
-                OPTIONAL { $uri dbo:originalName ?name }
-                OPTIONAL { $uri foaf:homepage ?homepage }
-                OPTIONAL { $uri dbp:locationCountry ?locationCountry }
+            SELECT ?country (COUNT(DISTINCT ?entity) AS ?count)
+            WHERE {
+                $collection
+                ?entity dbo:country ?country .
             }
-    show: 
+            GROUP BY ?country
+            ORDER BY DESC(?count)
+            LIMIT 12
+    show:
+        type: chart
+        chart: pie
+        labels: country
+        dataset: count
+        label: 山の数
+        display: localname
+-   def: gadget
+    name: CountryBar
+    title: 国別の数（上位20か国）
+    get:
+        type: sparql
+        src: |
+            SELECT ?country (COUNT(DISTINCT ?entity) AS ?count)
+            WHERE {
+                $collection
+                ?entity dbo:country ?country .
+            }
+            GROUP BY ?country
+            ORDER BY DESC(?count)
+            LIMIT 20
+    show:
+        type: chart
+        chart: bar
+        labels: country
+        dataset: count
+        label: 数
+        display: localname
+-   def: gadget
+    name: RangeBar
+    title: 山脈別の山の数（上位20）
+    get:
+        type: sparql
+        src: |
+            SELECT ?range (COUNT(DISTINCT ?entity) AS ?count)
+            WHERE {
+                $collection
+                ?entity dbo:mountainRange ?range .
+            }
+            GROUP BY ?range
+            ORDER BY DESC(?count)
+            LIMIT 20
+    show:
+        type: chart
+        chart: bar
+        labels: range
+        dataset: count
+        label: 山の数
+        display: localname
+        height: 400
+
+# ------------------------------------------------------------------
+# 知識グラフ全体のページのガジェット
+# ------------------------------------------------------------------
+-   def: gadget
+    name: Links
+    title: リンク
+    height: 200
+    get:
+        type: list                # 固定の一覧（header の名前の列に、行ごとにカンマ区切りで値を書く）
+        header: name, url
+        src: |
+            アルプスの山,/collection?view=AlpsMountains
+            山（dbo:Mountain）,/collection?class=dbo:Mountain
+            dbo:Mountain のクラスのページ,/resource?uri=http%3A%2F%2Fdbpedia.org%2Fontology%2FMountain
+    show:
         type: htable
         columns:
             - id: name
-            - id: homepage
-              type: directlink
-            - id: locationCountry
+              label: ページ
               type: link
-            - id: thumbnail
-              type: image
-              width: 600
+              href: "?url"
+              width: 400
 -   def: gadget
-    name: Champion
+    name: RangeRanking
+    title: 山の多い山脈（上位30）
     get:
         type: sparql
         src: |
-
-            SELECT ?year ?winner ?second ?thumbnail WHERE {
-                $uri dbp:year ?year;
-                     dbp:champion ?winner;
-                     dbp:second ?second;
-                     dbo:thumbnail ?thumbnail
+            SELECT ?range (SAMPLE(?l) AS ?label) (COUNT(DISTINCT ?m) AS ?count)
+            WHERE {
+                ?m a dbo:Mountain ;
+                   dbo:mountainRange ?range .
+                OPTIONAL { ?range rdfs:label ?l . FILTER(LANG(?l) = "en") }
             }
-    show: 
-        type: vtable
+            GROUP BY ?range
+            ORDER BY DESC(?count)
+            LIMIT 30
+    show:
+        type: htable
         columns:
-            - id: year
-            - id: winner
-            - id: second
-            - id: thumbnail
-              type: image
--   def: gadget
-    name: Out
-    get:
-        type: sparql
-        src: |
-            select ?p ?o where {
-                $uri ?p ?o}
-    show: 
-        type: htable
--   def: gadget
-    name: In
-    get:
-        type: sparql
-        src: |
-            prefix ctdv: <http://bio2rdf.org/ctd_vocabulary:>
-            select ?s ?p where {
-                ?s ?p $uri
-            }
-    show: 
-        type: htable
-        
-
-
+            - id: label
+              label: 山脈
+              link: range
+              width: 300
+            - id: count               # 数をクリックすると、その山脈で絞り込んだ山のコレクションへ
+              label: 山の数
+              collection:
+                class: dbo:Mountain
+                facet: range
+                value: range
+              width: 100

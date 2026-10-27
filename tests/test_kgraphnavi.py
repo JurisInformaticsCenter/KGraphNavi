@@ -69,6 +69,7 @@ class DummyApplication:
     get_facet_definition = Application.get_facet_definition
     apply_collection_filters = Application.apply_collection_filters
     make_page = Application.make_page
+    page_collection = Application.page_collection
     make_page_tabs = Application.make_page_tabs
     make_collection_header = Application.make_collection_header
     condition_labels = Application.condition_labels

@@ -392,19 +392,19 @@ def test_group_rows_merges_multi_valued_columns():
 
 
 def test_paged_gadget_disables_table_paging():
-    rows = [{"entity": {"type": "uri", "value": "http://e/a"}}]
-    paged = Gadget(
+    # 表のページ送りは、KGraphNavi 側でページ送りした結果（Rows.server_paged。コレクションのページで page_size が
+    # あるとき）でだけ止める。コレクションでないページでは page_size があっても全行を取るので、表の中でページ送りする
+    from kgraphnavi.app import Rows
+    record = {"entity": {"type": "uri", "value": "http://e/a"}}
+    server_paged = Rows([record])
+    server_paged.server_paged = True
+    gadget = Gadget(
         {"type": "sparql", "page_size": 20, "src": "SELECT ?entity WHERE { ?entity ?p ?o }"},
         {"type": "htable", "columns": [{"id": "entity", "type": "link"}]},
         None,
     )
-    plain = Gadget(
-        {"type": "sparql", "src": "SELECT ?entity WHERE { ?entity ?p ?o }"},
-        {"type": "htable", "columns": [{"id": "entity", "type": "link"}]},
-        None,
-    )
-    paged_html = paged.show(rows)
-    plain_html = plain.show(rows)
+    paged_html = gadget.show(server_paged)
+    plain_html = gadget.show(Rows([record]))
     assert "paging: false" in paged_html
     assert 'height: "auto"' in paged_html
     assert "paging: true" in plain_html

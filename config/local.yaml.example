@@ -17,3 +17,8 @@
 # 中労委の判例のHTMLは /data/churoi/<ID>.html
 # - data_dirs:
 #     churoi: ~/nii/churoi/data/lhtml
+
+# /<名前>/<path> で配信するフォルダ。caselaw.yaml の値を上書きする
+# 判例のHTMLは ../../css/hanrei.css（/css/hanrei.css）でCSSを参照する
+# - static_dirs:
+#     css: ~/nii/hanrei/data/css

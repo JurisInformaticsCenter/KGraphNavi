@@ -693,3 +693,64 @@ body.kg-busy .kg-tab-content {
     animation: none;
   }
 }
+
+/* 階層表示の表（show.tree） */
+.kg-tree-toggle {
+  display: inline-block;
+  width: 1.1em;
+  color: #666;
+  cursor: pointer;
+  user-select: none;
+}
+
+/* コレクションの中を検索語で絞り込む入力欄（q。2026.10.19） */
+.collection-search {
+  display: flex;
+  gap: 0.5em;
+  align-items: center;
+  margin: 0.3em 0 0.8em;
+  font-size: 0.9em;
+}
+.collection-search input[type="search"] {
+  width: 16em;
+}
+
+/* 名前を付けて保存したコレクション（2026.10.19） */
+.collection-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5em;
+  align-items: center;
+}
+.collection-save {
+  display: flex;
+  gap: 0.5em;
+  align-items: center;
+  margin: 0.3em 0 0.8em;
+  font-size: 0.9em;
+}
+.collection-save input[type="text"] {
+  width: 12em;
+}
+.saved-table {
+  border-collapse: collapse;
+  margin: 1em 0;
+}
+.saved-table th,
+.saved-table td {
+  border-bottom: 1px solid #ddd;
+  padding: 0.3em 0.8em;
+  text-align: left;
+}
+.saved-table td.num {
+  text-align: right;
+}
+.saved-merge {
+  margin: 0.5em 0 1.5em;
+}
+.saved-message {
+  color: #1a6b2f;
+}
+.saved-error {
+  color: #b00020;
+}

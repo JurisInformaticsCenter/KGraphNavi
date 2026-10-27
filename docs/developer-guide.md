@@ -1,1252 +1,219 @@
-# KGraphNavi Developer Guide
+# KGraphNavi 開発者ガイド
 
-## 1. この文書について
+KGraphNavi のソースコードを読み、直し、機能を加えるための文書です。設定ファイルの書き方は [ユーザーズガイド](user-guide.md) と [設定ファイルリファレンス](config.md) を参照してください。
 
-本書は、KGraphNaviのソースコードを理解し、保守・拡張するための開発者向けガイドです。
+## 1. 全体の構成
 
-KGraphNaviは、RDF/Linked DataをSPARQL経由で取得し、URIに対応するPageとGadgetを設定ファイルから構成して表示するWebアプリケーションです。
-
-KGraphNaviでは、画面そのものをPythonコードに直接記述するのではなく、主として以下の要素を組み合わせて画面を構成します。
-
-- Page
-
-- Gadget
-
-- Extract
-
-- Show
-
-- SPARQL
-
-- HTML/JavaScript生成
-
-設定ファイルでPageとGadgetを定義し、実行時にURIからRDF typeを取得してPageを選択し、そのPageに登録されたGadgetを順番に実行します。
-
-本書では、各ソースファイルの責務と主要な処理の流れを説明します。
-
----
-
-# 2. 全体アーキテクチャ
-
-KGraphNaviの基本的な処理は、概ね次のように構成されています。
+KGraphNavi は Flask の Web アプリケーションです。設定ファイルからページとガジェットの定義を読み込み、リクエストごとに SPARQL を実行して HTML を作ります。
 
 ```text
-HTTP request
-     │
-     ▼
-  views.py
-     │
-     ▼
-Application
-     │
-     ├── URIからrdf:typeを取得
-     │
-     ├── Pageを選択
-     │
-     ▼
-  Page
-     │
-     ├── Gadget 1
-     ├── Gadget 2
-     └── Gadget 3
-            │
-            ├── Extract
-            │      │
-            │      ▼
-            │   sparql.py
-            │      │
-            │      ▼
-            │   RDF/SPARQL endpoint
-            │
-            └── Show
-                   │
-                   ├── utils.py
-                   │
-                   └── makehtml.py
-                           │
-                           ▼
-                    HTML / JavaScript
+            設定ファイル（YAML）
+                   │ load_config / setconfig（検証）
+                   ▼
+  ┌─────────── Application ────────────┐
+  │  Pages（ページ定義）                 │
+  │  gadgetset {名前: Gadget}            │
+  │  SPARQL（エンドポイントのクライアント）│
+  └──────────────────────────────────┘
+        ▲                         │
+  views.py（ルーティング）           │ make_page → make_gadget
+  /resource /collection /graph ...  │   Gadget.extract（get） → SPARQL / Collection
+                                     │   Gadget.show（show）   → render_utils / facets
+                                     ▼
+                         makehtml.make_html → templates/layout.html
 ```
 
-PageはGadgetの集合として構成されます。`Application.make_page()` はPage定義からGadget一覧を取得し、各Gadgetについて `make_gadget()` を呼び出します。
+- **取得と表示を分ける**: ガジェットの `get` は SPARQL の結果（`results.bindings` の形のリスト）などのデータを返し、`show` がそれを HTML にします。
+- **コレクションは SPARQL の条件として持つ**: コレクションは要素の URI のリストではなく、`?uri` を束縛するグラフパターンの式木です。絞り込みも式木に条件を加えるだけで、ガジェットには副問い合わせとして埋め込みます。
+- **値は検証してから SPARQL に埋め込む**: URL のパラメータや設定の値は `terms.py` で IRI・リテラル・数値・プロパティパスとして検証し、SPARQL の項にしてから使います。
 
-Gadgetでは、まずExtractによってデータを取得し、その結果をShowによって表示形式に変換します。現在の実装では、SPARQL、リスト、CSVからの隣接グラフなど複数のExtract方式が存在します。
-
----
-
-# 3. ソースコードの構成
-
-## 3.1 `kgraphnavi.py`
-
-KGraphNaviのアプリケーション本体です。
-
-主な責務は次のとおりです。
-
-- 設定ファイルの読み込み
-
-- Pageの管理
-
-- Gadgetの管理
-
-- URIからPageを決定した後のPage生成
-
-- Gadgetの実行
-
-- 隣接グラフなどのアプリケーション固有データの管理
-
-- Flaskアプリケーションの生成
-
-`Application` は、Page、Gadgetセット、アプリケーションタイトル、説明、サンプル、priority list、SPARQLクライアントなどを保持します。
-
-### Application
-
-ApplicationはKGraphNavi全体を管理するオブジェクトです。
-
-主な属性は以下です。
-
-- `pages`
-
-- `gadgetset`
-
-- `title`
-
-- `describe`
-
-- `query_samples`
-
-- `uri_samples`
-
-- `import_files`
-
-- `priority_list`
-
-- `sparql_client`
-
-### `make_page()`
-
-指定されたPageについて、そのPageに登録されたGadgetを生成します。
+## 2. ソースコード
 
 ```text
-Page
- ├─ Gadget A
- ├─ Gadget B
- └─ Gadget C
+kgraphnavi/
+├── __main__.py      python -m kgraphnavi
+├── app.py           設定の読み込み・検証、Application / Pages / Gadget、起動（main）
+├── views.py         Flask のルーティング（URL → ページ）
+├── sparql.py        SPARQL クライアント（接頭辞、$変数の置き換え、検索）
+├── collection.py    コレクション（式木）と、その SPARQL の生成
+├── facets.py        ファセットの URL パラメータ、絞り込みの画面部品、ページ送り、分布
+├── terms.py         値の検証と SPARQL の項への変換
+├── render_utils.py  表のセル、横・縦の表、行のまとめ（group_by）、階層（tree）、グラフ
+├── makehtml.py      ページ全体の HTML、jsGrid の表の JavaScript
+├── cytoscape.py     ネットワーク表示の JavaScript（現在は使われていない）
+├── errors.py        例外クラス
+├── misc.py          補助関数
+└── templates/       HTML テンプレート、CSS、JavaScript
+tests/               pytest のテスト（SPARQL エンドポイントには接続しない）
+config/              設定ファイル（dbpedia.yaml はサンプル）
+docs/                文書
 ```
 
-というPage定義を、実際のHTMLコンテンツへ変換する処理です。
+### 2.1 `app.py`
 
-### `make_gadget()`
+| 名前 | 役割 |
+| --- | --- |
+| `main()` | コマンドラインの解析、ログの設定、`build_application()`、Flask の起動 |
+| `create_app_from_env()` | 環境変数 `KGRAPHNAVI_*` から Flask アプリを作る（WSGI サーバ用） |
+| `build_application()` | `load_config()` の結果と引数から `SPARQL` と `Application` を作る（引数が設定より優先） |
+| `load_config()` | 設定ファイルを探し（`resolve_config_path`）、`local.yaml` を後ろに足して `setconfig()` に渡す |
+| `setconfig()` | `import` の展開（循環の検出）、項目の検証、`Pages` と `Gadget` の生成、組み込みのコレクションのページの追加、参照の検証 |
+| `Pages` | ページ定義の登録と検証（`set_page`）、`rdf:type` → ページ（`rdftype2page`）、接頭辞の展開 |
+| `Gadget` | `get`（`EXTRACTORS` の `extract_*`）と `show`（`show()`）。`$collection` の接続、行数の制限、ファセットの集計 |
+| `Application` | ページの組み立て（`make_page` / `make_gadgets` / `make_page_tabs` / `make_gadget`）、コレクションの作成と絞り込み（`get_collection` / `apply_collection_filters` / `gadget_collection`）、クラス → コレクションのページ（`collection_page`）、候補の検索の方法の判定（`text_search_method`） |
 
-Gadget名を解決し、必要ならURIをpathに従って移動し、ExtractとShowを実行します。
+### 2.2 `views.py`
 
-現在の構造では、
+| URL | 関数 | 処理 |
+| --- | --- | --- |
+| `/` | `root` | `index.html` にサンプルを渡す |
+| `/search` | `search` | `SPARQL.retrieve()` でラベルを検索し、`retrieval_result.html` |
+| `/resource` | `get_resource` | `rdf:type` を取り、`priority` で1つ選び、`rdftype2page` のページを `render_page` |
+| `/collection` | `collection` | `from=`（ガジェットの一覧）、`view=`（ページ名）、`class=`（`collection_page`）の順にページを決めて `render_page` |
+| `/graph` | `graph` | `type: graph` の最初のページ |
+| `/data/<path>` | `getfile` | `data_dirs` / `data_dir` から `send_from_directory` |
+| `/<名前>/<path>` | `getstatic` | `static_dirs` から `send_from_directory` |
+
+`render_page()` は `Application.make_page()` の HTML 片をつなげ、`makehtml.make_html()` でページ全体にします。`KGraphError` は 400、`SparqlError` は 500 のエラー画面になります。
+
+### 2.3 `sparql.py`
+
+`SPARQL` は SPARQLWrapper の薄いラッパーです。
+
+- `exsparql(query)`: 接頭辞（`STANDARD_PREFIXES` と設定の `prefixes`）を付けて実行し、`bindings` を返す。失敗は `SparqlError`
+- `query(sparql, params)`: `$名前` を `param_term()` で検証した項に置き換えてから実行する（`uri` / `class` / `class_uri` は IRI、`predicate` はプロパティパス、それ以外はリテラル）。SPARQL に現れない名前は無視する
+- `get_target` / `rdfobject` / `get_count` / `get_list`: よく使う問い合わせ
+- `get_superclasses_among(class, candidates)`: コレクションのページを上位クラスで探すときに使う
+- `retrieve(text, mode)`: `/search` のラベル検索
+
+### 2.4 `collection.py`
 
 ```text
-make_gadget()
-    ↓
-make_window()
-    ↓
-gadget.extract()
-    ↓
-gadget.show()
+Collection（抽象）
+├── ClassCollection      ?uri a <C> .
+├── QueryCollection      ?uri を返す SELECT（ページの query、ガジェットの一覧）
+├── UriCollection        VALUES ?uri { … }
+├── FilteredCollection   条件（ValueCondition / RangeCondition）を加えたもの
+├── UnionCollection / IntersectCollection / MinusCollection
 ```
 
-という流れになります。
+- いずれもイミュータブルで遅延評価です。`filter()` / `filter_range()` / `without()` は新しいコレクションを返し、`count()` / `get_facets()` / `get_range()` / `get_histogram()` / `get_uris()` が呼ばれたときに SPARQL を実行します（`count()` は結果を覚えます）。
+- `to_subquery("?entity", limit, offset)` は、要素を `?entity` だけに出す副問い合わせを返します。ガジェットの `$collection` はこれに置き換わります。`limit` / `offset` は `page_size` のページ送りで使い、`ORDER BY ?uri` を付けます。
+- 条件には名前（ファセット名）が付き、`without({名前})` でその条件だけを外せます。ファセットの候補は、自分の条件を外したコレクションで数えます。
+- `facet_query()` は候補の検索に `CONTAINS` または Virtuoso の `bif:contains` を使います。
 
-GadgetのHTMLにはGadget名をタイトルとして付加します。
+### 2.5 `facets.py`
 
----
+- `request_params(args, path)`: Flask の `request.args` から、ガジェットに渡す `params` を作る。`f.<名前>` は `params["_facets"]`（`values` / `ranges` / `options`）にまとめ、元の引数（`_args`）とパス（`_path`）も残す
+- `facet_selection()` / `facet_option()` / `match_mode()` / `page_number()`: `params` の解釈
+- `make_url()` / `hidden_inputs()`: 条件を外す・加える URL、フォームで条件を引き継ぐ hidden input
+- `render_value_facet()` / `render_range_facet()` / `render_conditions()` / `render_pager()`: 画面部品
+- `plan_bins()` / `build_histogram()` / `render_histogram()`: 範囲のファセットの分布
 
-# 4. Gadget
+### 2.6 `terms.py`
 
-## 4.1 Gadgetの責務
+`iri_term()`（`<…>` または接頭辞付きの名前）、`literal_term()`、`typed_term()`、`number_term()`、`predicate_term()`（プロパティパス）などで、値を検証して SPARQL の項にします。検証できない値は `ValueTermError`（`KGraphError` の一種なので 400）になります。新しく SPARQL に値を埋め込むときは、文字列を直接つながず、必ずこれらを通してください。
 
-Gadgetは、1つの表示部品を表します。
+### 2.7 `render_utils.py` と `makehtml.py`
 
-Gadgetは大きく、
+表は次の順で作ります。
 
 ```text
-Extract → Show
+SPARQL の行（bindings）
+  → get_record_cells()       列（columns）ごとのセル {value, type, href}
+  → group_rows()             group_by: 同じ値の行をまとめ、複数の値は {type: multi}
+  → arrange_tree()           tree: 親子の順に並べ、行に _kgtree {id, depth, anc, hasChildren}
+  → makehtml.make_table()    jsGrid のデータと列の定義（JavaScript）
+  → kgRenderCell()           ブラウザでセルを描画（link / directlink / image / multi）
 ```
 
-という2段階で動作します。
+- セルのリンク先は `get_item_data()` で決めます（列の `collection` → `link` → `href` → `type` の順）。
+- `show_vertical_table()` は最初の1行を「属性・値」の表にします。
+- `show_chart()` は Chart.js の設定を JSON にして埋め込みます（グラフごとに固有の canvas）。
+- `makehtml.make_html()` は `templates/layout.html` に本文と、使うライブラリ（jsGrid、Chart.js、Cytoscape.js）を入れます。
 
-- Extract: データを取得する
+### 2.8 例外
 
-- Show: データを表示する
+| 例外 | 場面 |
+| --- | --- |
+| `KGraphError` | すべての基底（画面では 400） |
+| `ConfigError` | 設定の誤り（起動時、または表示時の列の `type`） |
+| `SparqlError` | SPARQL の実行の失敗（画面では 500） |
+| `GadgetError` / `ShowError` | ガジェットの取得・表示の誤り |
+| `CollectionError` | コレクションの定義の誤り（`query` に `PREFIX`、`?uri` がない、未対応の `datatype` など） |
+| `ValueTermError` | 値の検証の失敗 |
 
-この分離により、同じデータ取得方法を異なる表示方法で利用できます。
+## 3. リクエストの流れ
 
----
+### 3.1 `/resource?uri=…`
 
-## 4.2 Extract
+1. `sparql.get_target(uri, "a")` で `rdf:type` を取る
+2. `get_highest_priority_item()` で `priority` の最も前のクラスを選び、`Pages.rdftype2page()` でページ名にする（なければ `type: '*'`）
+3. `Application.make_page()`: ページに `collection: instances` があれば `ClassCollection(uri)` を作り、URL の条件で絞り込む
+4. `gadget` / `tabs` / `sidebar` の各ガジェットで `make_gadget()`
+   - `Gadget.extract()`: `get.type` の `extract_*` を呼ぶ。`sparql` では `$collection` の接続 → `limit_rows()` → `SPARQL.query()`（`$uri` などの置き換え）
+   - `Gadget.show()`: `show.type` の表示関数
+   - 見出し、`collection` のボタン、行数の上限の注意、ページ送りを付ける
 
-現在のGadgetでは、Extract typeに応じて処理を切り替えています。
+### 3.2 `/collection?…`
 
-主なExtract typeは以下です。
+1. `request_params()` で `params` を作る
+2. ページを決める: `from=` なら `gadget_collection()` でガジェットの SPARQL からコレクションを作り、`view=` / `class=` / 組み込みのページの順で表示するページを選ぶ。`view=` ならそのページ。`class=` なら `collection_page()`（`class:` のページ → 上位クラスのページ → `class` も `query` もないページ → 組み込みのページ。結果は覚える）
+3. `make_page()`: `get_collection()`（`query` → `class` → `uri`）でコレクションを作り、`apply_collection_filters()` で `f.…` の条件を加える。先頭に件数と現在の条件（`make_collection_header()`）
+4. ファセットのガジェットは `extract_facet()` で、自分の条件を外したコレクションの候補・範囲・分布を求める
 
-- `sparql`
+## 4. 機能を加える
 
-- `list`
+### 4.1 新しい取得方法（`get.type`）
 
-- `filter`
+1. `Gadget` に `extract_<名前>(self, uri, application, params=None, collection=None)` を作る。表に出すなら SPARQL の `bindings` と同じ形（`[{変数: {"type": …, "value": …}}]`）を返す
+2. `Gadget.EXTRACTORS` に `"<名前>": "extract_<名前>"` を加える（設定の検証の `SUPPORTED_GET_TYPES` にも入る）
+3. テストと [設定ファイルリファレンス](config.md#5-取得get) を更新する
 
-- `csv2adjacent`
+### 4.2 新しい表示方法（`show.type`）
 
-- `python`
+1. `render_utils.py` に `show_<名前>(content, show_method)` を作り、HTML の文字列を返す
+2. `Gadget.SHOWERS` に加え、`Gadget.show()` で必要な引数を渡す（`chart` の分岐を参照）
+3. 外部のライブラリが要るなら `makehtml.LIBRARIES` に加える
 
-- `csv`
+### 4.3 新しい設定項目
 
-- `dbpedia`
+`setconfig()` の `APPLICATION_KEYS` / `PAGE_KEYS` / `GADGET_KEYS` に加えないと、未知の項目としてエラーになります。値の検証もここで行い、[リファレンス](config.md) に書いてください。
 
-`Gadget.EXTRACTORS` にExtract方式と実装メソッドの対応を定義します。現在のコードでは、例えば `sparql` は `extract_sparql()`、`list` は `extract_list()` に対応します。
+### 4.4 新しいファセットの種類
 
-### `extract_sparql()`
+`facets.py` に URL パラメータの解釈と画面部品を、`collection.py` に条件（`Condition` の派生クラス）と集計の SPARQL を、`Application.apply_collection_filters()` に条件の適用を加えます。
 
-設定されたSPARQLを実行します。
+## 5. テスト
 
-設定中の `$uri` は対象URIに置換されます。
-
-また、Page側で設定されたsnippetを `$snippet` としてSPARQLへ埋め込む仕組みがあります。
-
----
-
-## 4.3 Show
-
-ShowはExtractで取得したデータを表示用の形式に変換します。
-
-主なShow typeは、
-
-- `vtable`
-
-- `htable`
-
-- `network`
-
-- `adjacentnetwork`
-
-- `chart`
-
-です。
-
-テーブル表示では、`columns` の定義を `prepare_columns()` に渡して表示用の情報を準備し、その後 `show_vertical_table()` または `show_horizontal_table()` を呼び出します。
-
----
-
-# 5. Page
-
-## 5.1 Pageの役割
-
-Pageは、特定のRDF typeに対応する画面構成です。
-
-Pageには、
-
-- Page name
-
-- RDF type
-
-- Gadget list
-
-が定義されます。
-
-`Pages.set_page()` によってPage定義が登録され、内部ではPage nameとRDF type、Gadget listが保持されます。
-
----
-
-## 5.2 URIからPageを選択する処理
-
-`/resource` へのリクエストでは、まずURIの `rdf:type` をSPARQLで取得します。
-
-その後、priority listを使って対象URIの代表的なRDF typeを決定し、Page定義と対応付けます。現在の `views.py` では、この処理は概ね次の順序です。
-
-```text
-URI
- ↓
-rdf:typeを取得
- ↓
-priorityによってtypeを選択
- ↓
-rdf:type → Page
- ↓
-Pageを生成
+```bash
+pip install -e ".[test]"
+pytest
 ```
 
-`views.py` では `get_target(uri, 'a')` によってRDF typeを取得し、`get_highest_priority_item()` によってpriorityを考慮したtypeを選択しています。
-
-この処理はKGraphNaviの重要な仕様であるため、priorityの意味やfallbackの規則はユーザーズガイドにも明記する必要があります。
-
----
-
-# 6. `views.py`
-
-`views.py` はFlaskのHTTPリクエストをKGraphNavi内部の処理につなぐ入口です。
-
-主な役割は、
-
-- HTTPリクエストの受信
-
-- URIや検索条件の取得
-
-- Applicationへの処理委譲
-
-- HTMLレスポンスの生成
-
-です。
-
-現在の主なエンドポイントには、
-
-- `/`
-
-- `/search`
-
-- `/resource`
-
-- `/collections`
-
-- `/statistics`
-
-- `/data/<filename>`
-
-などがあります。
-
-## `/resource`
-
-KGraphNaviの主要な入口です。
-
-```text
-/resource?uri=...
-```
-
-というリクエストを受け取り、
-
-1. URIを取得
-
-2. RDF typeを取得
-
-3. priorityを適用
-
-4. Pageを決定
-
-5. Pageを生成
-
-6. HTML responseを返す
-
-という処理を行います。
-
-Page生成そのものは `render_page()` に委譲されます。`render_page()` はApplicationからPageを生成し、`make_html()` によって最終HTMLを構成します。
-
----
-
-# 7. `sparql.py`
-
-`sparql.py` はRDFストアとの通信を担当します。
-
-中心となるクラスは `SPARQL` です。
-
-```text
-SPARQL
- ├─ query()
- ├─ query_values()
- ├─ query_value()
- ├─ rdfobject()
- ├─ get_target()
- ├─ get_subject()
- ├─ get_count()
- ├─ get_list()
- └─ retrieve()
-```
-
-現在の実装ではSPARQLWrapperを利用しています。
-
-## `query()`
-
-SPARQLクエリ中の `$uri` などの変数を置換して実行します。
-
-## `query_values()`
-
-指定された変数の値だけを取り出します。
-
-## `query_value()`
-
-最初の値を返します。値が存在しない場合は `None` を返します。
-
-## `rdfobject()`
-
-URIとpredicateからobjectを取得します。
-
-## `get_target()`
-
-URIから指定されたpathをたどり、対象となる値の一覧を取得します。
-
-## `get_count()`
-
-指定predicateの値の個数を取得します。
-
-## `get_list()`
-
-指定predicateの値の一覧を取得します。
-
----
-
-# 8. SPARQL Prefix
-
-SPARQLに共通して使用するprefixは `sparql.py` の共通prefix処理で管理します。
-
-現在の実装では `PREFIX` がSPARQL実行時にクエリへ付加されます。`exsparql()` はログに実際に実行するSPARQLを出力し、共通prefixを付加してSPARQL endpointへ送信します。
-
-共通prefixを増やす場合は、各GadgetのSPARQLへ同じprefixをコピーするのではなく、共通prefix管理側へ追加することを基本とします。
-
-今後の整理では、
-
-```text
-共通prefix
-    ↓
-SPARQL client
-    ↓
-各GadgetのSPARQL
-```
-
-という責務分担を維持することが望まれます。
-
----
-
-# 9. `utils.py`
-
-`utils.py` は、取得したRDF/SPARQLデータを表示処理に適した形へ変換するためのユーティリティをまとめたモジュールです。
-
-特に重要なのは、
-
-- `prepare_columns()`
-
-- `get_item_data()`
-
-- `show_vertical_table()`
-
-- `show_horizontal_table()`
-
-などです。
-
-## `prepare_columns()`
-
-Gadgetの `columns` 設定を表示処理で利用できる形に準備します。
-
-例えば、
-
-- `type: directlink`
-
-- `link`
-
-などのcolumns属性に基づいて取得データを補正します。
-
-今後は、この関数を単なるcolumnsの補助処理ではなく、
-
-> columns定義を正規化し、表示処理が安全に利用できる状態にする
-
-ための境界として扱うことが望まれます。
-
----
-
-# 10. 表示データの内部形式
-
-KGraphNaviでは、SPARQL結果を単なる文字列ではなく、
-
-```python
-{
-    "type": "...",
-    "value": "..."
-}
-```
-
-というセル情報として扱います。
-
-例えば、
-
-```python
-{
-    "name": {
-        "type": "literal",
-        "value": "Mount Fuji"
-    }
-}
-```
-
-のような構造です。
-
-この形式により、
-
-- literal
-
-- URI
-
-- directlink
-
-- image
-
-- list
-
-など、値そのものと表示方法を分離できます。
-
-Gadgetのcolumns定義は、この内部形式に対する表示上の変換を指定するために使用されます。
-
----
-
-# 11. `makehtml.py`
-
-`makehtml.py` は、表示用データをHTMLおよびJavaScriptへ変換するモジュールです。
-
-主な役割は、
-
-- ページHTMLの生成
-
-- JavaScriptライブラリの読み込み
-
-- jsGridの生成
-
-- テーブルのHTML/JavaScript生成
-
-です。
-
-現在の実装では、
-
-```text
-make_table()
-    ↓
-make_jsgrid()
-```
-
-という構造になっています。
-
----
-
-# 12. jsGrid生成
-
-jsGridを利用するテーブルでは、各テーブルに固有のIDを付けます。
-
-例えば、
-
-```text
-jsGrid_9fb71b28
-```
-
-のようなIDです。
-
-このIDはHTML側の
-
-```html
-<div id="jsGrid_9fb71b28"></div>
-```
-
-とJavaScript側の
-
-```javascript
-$("#jsGrid_9fb71b28").jsGrid(...)
-```
-
-で共有します。
-
-これは、1ページに複数のGadgetが存在する場合に重要です。
-
-各Gadgetが同じ `id="jsGrid"` を使用すると、複数のテーブルが同じDOM要素を参照してしまいます。
-
-そのため、jsGridを生成する処理では、
-
-```text
-grid IDの生成
- ↓
-HTMLのdiv
- ↓
-JavaScriptのjsGrid初期化
-```
-
-を一つの処理単位として扱います。
-
----
-
-# 13. HTML生成
-
-現在の `make_html()` は、Page全体を構成するHTMLテンプレートに、
-
-- title
-
-- navigation
-
-- libraries
-
-- content
-
-- categoryに基づく色
-
-などを渡してHTMLを生成します。
-
-現在は `render_template("page.html", ...)` を利用する実装に整理されています。
-
-HTMLの基本構造はテンプレート側に置き、Pythonコードに巨大なHTML文字列を持たせないことを基本とします。
-
----
-
-# 14. `templates/`
-
-`templates/` はFlaskが利用するHTMLテンプレートを置くディレクトリです。
-
-テンプレートと、実行時に生成されるHTML/JavaScriptは区別して管理します。
-
-### テンプレート
-
-例：
-
-```text
-templates/
-    page.html
-    index.html
-    retrieval_result.html
-    error.html
-    filter.html
-```
-
-これらはアプリケーションのUI構造を定義するためのファイルです。
-
-### 生成物
-
-Gadget表示のたびに生成されるHTMLやJavaScriptを恒久的なテンプレートとして保存する設計は避けます。
-
-現在の整理方針では、
-
-```text
-Python
-  ↓
-HTML/JavaScript文字列
-  ↓
-HTTP response
-```
-
-として扱い、実行時生成物を `templates/` に蓄積しない構成を基本とします。
-
----
-
-# 15. `create_app()`
-
-`kgraphnavi.py` の `create_app()` はFlaskアプリケーションを構築します。
-
-Flaskのtemplate directoryやstatic directoryを設定し、ApplicationとSPARQL clientをFlaskのapplication contextに登録します。
-
-概念的には、
-
-```text
-Application
-     │
-     ▼
- create_app()
-     │
-     ├── Flask
-     ├── templates
-     ├── Application
-     └── SPARQL client
-```
-
-という関係です。
-
----
-
-# 16. 設定ファイルの読み込み
-
-`setconfig()` は設定ファイルを読み込み、Page、Gadget、SPARQL endpointなどのアプリケーション設定を構築します。
-
-現在の設定には、
-
-- `page`
-
-- `gadget`
-
-- `rdfstore`
-
-- `label`
-
-- `query_samples`
-
-- `uri_samples`
-
-- `priority`
-
-- `title`
-
-- `describe`
-
-- `import`
-
-などがあります。
-
-設定値はApplicationへ渡され、Page/Gadgetの実行時に利用されます。
-
----
-
-# 17. 設定とソースコードの責務分担
-
-KGraphNaviを拡張するときは、次の原則を基本とします。
-
-### PageやGadgetの追加
-
-まず設定ファイルで表現できないか検討します。
-
-```text
-Page/Gadgetの追加
-        ↓
-設定ファイル
-```
-
-### 新しいExtract方式
-
-既存Extractでは表現できない場合はGadget側へ追加します。
-
-```text
-新しいExtract方式
-        ↓
-Gadget
-        ↓
-EXTRACTORS
-```
-
-### 新しい表示方式
-
-既存Showでは表現できない場合はShow側へ追加します。
-
-```text
-新しい表示方式
-        ↓
-utils.py等
-        ↓
-SHOWERS
-```
-
-### 新しいSPARQL操作
-
-複数Gadgetから共通して利用する処理なら `sparql.py` に追加します。
-
-```text
-共通RDF操作
-        ↓
-SPARQL
-```
-
-### HTML/JavaScriptの変更
-
-表示データをどのようにHTML/JavaScriptへ変換するかに関する処理は `makehtml.py` を対象とします。
-
----
-
-# 18. エラー処理
-
-KGraphNaviでは、設定エラー、SPARQLエラー、Gadgetエラー、表示エラーを区別して扱うことを目指します。
-
-SPARQL実行では例外を捕捉し、`SparqlError` として上位へ伝える構造が導入されています。
-
-Gadgetについても、未知のExtract typeなどを `GadgetError` として通知する構造が導入されています。
-
-今後追加する処理では、
-
-```text
-設定が不正
-    → Config/設定関連エラー
-
-SPARQL実行失敗
-    → SparqlError
-
-Extract設定が不正
-    → GadgetError
-
-Show設定が不正
-    → ShowError
-```
-
-のように、原因を追跡できる例外体系を維持します。
-
----
-
-# 19. Loggingとデバッグ
-
-KGraphNaviではPythonの `logging` を利用してデバッグ情報を出力します。
-
-特にSPARQL処理では、
-
-```python
-logger = logging.getLogger(__name__)
-```
-
-を使用し、実行されるSPARQLやSPARQL実行エラーを記録しています。
-
-デバッグ時には、単に「エラーになった」という情報だけでなく、処理の境界ごとに、
-
-```text
-URI
- ↓
-rdf:type
- ↓
-priority判定
- ↓
-Page
- ↓
-Gadget
- ↓
-Extract
- ↓
-Show
-```
-
-を追跡できるログを出すことが重要です。
-
-特にPage選択では、
-
-- 対象URI
-
-- 取得したrdf:type一覧
-
-- priority list
-
-- priority判定結果
-
-- 選択されたPage
-
-- fallbackしたかどうか
-
-をDEBUGレベルで記録すると、設定ミスを発見しやすくなります。
-
----
-
-# 20. 新しいGadgetを追加する場合
-
-新しいGadgetを追加する場合は、まず設定ファイルだけで実現できるか検討します。
-
-一般的には、
-
-```text
-1. Gadget定義を追加
-2. Extractを指定
-3. Showを指定
-4. PageにGadgetを登録
-```
-
-という順序になります。
-
-PageとGadgetは設定ファイルから登録されます。`setconfig()` は `def: page` と `def: gadget` をそれぞれ対応するオブジェクトへ登録します。
-
----
-
-# 21. 新しいExtract方式を追加する場合
-
-新しいExtract方式を追加する場合は、GadgetのExtract処理を拡張します。
-
-基本的な設計は、
-
-```text
-extract type
-      ↓
-EXTRACTORS
-      ↓
-extract_xxx()
-      ↓
-共通のデータ形式
-```
-
-です。
-
-新しいExtract方式を追加するときは、
-
-1. 設定上のtype名を決める
-
-2. Extractメソッドを実装する
-
-3. `EXTRACTORS` に登録する
-
-4. エラー処理を追加する
-
-5. 必要ならテストを追加する
-
-という手順を取ります。
-
----
-
-# 22. 新しいShow方式を追加する場合
-
-Show方式もExtractと同様に、方式名と実装を対応付けます。
-
-```text
-show type
-    ↓
-SHOWERS
-    ↓
-show_xxx()
-```
-
-表示処理では、Extract結果の内部データ形式を直接壊さず、表示層で必要な変換を行うことを基本とします。
-
----
-
-# 23. データ形式を変更するときの注意
-
-KGraphNaviでは、
-
-```text
-SPARQL result
-    ↓
-内部データ
-    ↓
-utils.py
-    ↓
-makehtml.py
-    ↓
-JavaScript
-```
-
-という複数の層でデータを受け渡します。
-
-そのため、データ構造を変更するときは、1つの関数だけを修正するのではなく、入出力を確認する必要があります。
-
-特にテーブルについては、
-
-```text
-record
-    ↓
-columns
-    ↓
-get_item_data()
-    ↓
-table row
-    ↓
-make_jsgrid()
-```
-
-という流れを意識してください。
-
-横方向テーブルでは、1レコードを「列名をキーとする辞書」として扱う設計を基本とします。
-
----
-
-# 24. HTML/JavaScriptを生成する処理を変更するとき
-
-HTML生成処理では、以下の責務を分離します。
-
-### データ変換
-
-`utils.py`
-
-### HTML/JavaScript構造
-
-`makehtml.py`
-
-### ページ全体のテンプレート
-
-`templates/page.html`
-
-### HTTPレスポンス
-
-`views.py`
-
-例えばjsGridについては、
-
-```text
-utils.py
-    ↓
-テーブルデータ
-    ↓
-makehtml.py
-    ↓
-grid ID
-    ↓
-<div id="...">
-    ↓
-jsGrid initialization
-```
-
-という流れです。
-
-HTML文字列そのものをデータとしてSPARQL結果に混ぜる設計は避けます。
-
-例えば画像の場合、
-
-```text
-悪い設計
-
-value =
-<img src="...">
-```
-
-ではなく、
-
-```text
-value =
-http://example.org/image.png
-
-type =
-image
-```
-
-として、表示層で `<img>` を生成する設計を維持します。
-
----
-
-# 25. 依存関係
-
-主要な依存関係は次のように考えることができます。
-
-```text
-views.py
-    │
-    ├── kgraphnavi.py
-    └── makehtml.py
-
-kgraphnavi.py
-    │
-    ├── sparql.py
-    ├── utils.py
-    └── makehtml.py
-
-utils.py
-    │
-    └── makehtml.py
-
-makehtml.py
-    │
-    └── templates/
-```
-
-依存方向を不必要に逆転させないことが重要です。
-
-特に、
-
-- `utils.py` がHTTP requestを直接扱う
-
-- `makehtml.py` がPage選択を行う
-
-- `sparql.py` がHTMLを生成する
-
-といった責務の混在は避けます。
-
----
-
-# 26. 拡張時の基本原則
-
-KGraphNaviを拡張するときは、次の原則を基本とします。
-
-### 原則1：設定と実装を分離する
-
-PageやGadgetの個別設定をPythonコードへ埋め込まない。
-
-### 原則2：取得と表示を分離する
-
-Extractはデータ取得、Showは表示変換を担当する。
-
-### 原則3：データとHTMLを分離する
-
-内部データにHTML文字列を混在させず、表示層でHTMLを生成する。
-
-### 原則4：共通処理は共通モジュールへ置く
-
-SPARQL操作は `sparql.py`、表示データ変換は `utils.py`、HTML生成は `makehtml.py` に集約する。
-
-### 原則5：エラーの原因を保持する
-
-単に `None` を返すのではなく、必要に応じて専用例外を利用する。
-
-### 原則6：デバッグ可能性を維持する
-
-URI、RDF type、Page、Gadget、Extract、Showという処理単位でDEBUGログを確認できるようにする。
-
----
-
-# 27. 今後の整理事項
-
-現在のコードには、今後さらに責務を分離できる部分があります。
-
-## 27.1 Page選択の独立
-
-現在、`views.py` がURIからrdf:typeを取得し、priorityを適用し、Pageを選択しています。
-
-今後は、
-
-```text
-URI
- ↓
-PageResolver
- ↓
-Page
-```
-
-のようにPage選択処理を独立させると、テストしやすくなります。
-
-## 27.2 設定検証
-
-現在は設定項目の不足や型の誤りが実行時に発見される場合があります。
-
-将来的には、
-
-```text
-YAML
- ↓
-Config validation
- ↓
-正規化された設定
- ↓
-Application
-```
-
-という構造を導入することが望まれます。
-
-## 27.3 データモデルの明確化
-
-SPARQL結果、テーブル行、セル情報などの内部データ形式を明確に定義し、各関数の入出力として文書化する必要があります。
-
-## 27.4 HTML生成のさらなる分離
-
-`makehtml.py` にHTML、JavaScript、jsGrid固有処理が集約されているため、規模が大きくなった場合には、
-
-```text
-html.py
-jsgrid.py
-network.py
-```
-
-などへの分割を検討します。
-
----
-
-# 28. 開発時に最初に読むべきファイル
-
-KGraphNaviのコードを初めて読む場合は、次の順序を推奨します。
-
-```text
-1. kgraphnavi.py
-       ↓
-2. views.py
-       ↓
-3. Gadget / Pages
-       ↓
-4. sparql.py
-       ↓
-5. utils.py
-       ↓
-6. makehtml.py
-       ↓
-7. templates/
-```
-
-最初に `kgraphnavi.py` でApplication、Page、Gadgetの関係を理解します。
-
-次に `views.py` でHTTPリクエストからPage生成までの入口を確認します。
-
-その後、
-
-```text
-Extract → SPARQL
-Show    → utils
-HTML    → makehtml
-```
-
-の順に読むと、1つのGadgetがどのように画面になるかを追いやすくなります。
-
----
-
-# 29. 典型的なデバッグ手順
-
-Gadgetが表示されない場合は、上流から順番に確認します。
-
-### 1. URI
-
-対象URIが正しいか確認します。
-
-### 2. RDF type
-
-対象URIについて期待する `rdf:type` が取得されているか確認します。
-
-### 3. priority
-
-複数のRDF typeがある場合、期待するtypeがpriorityによって選択されているか確認します。
-
-### 4. Page
-
-選択されたPageが期待するPageか確認します。
-
-### 5. Gadget
-
-Pageに期待するGadgetが登録されているか確認します。
-
-### 6. Extract
-
-GadgetのSPARQLが実行され、期待するデータが返っているか確認します。
-
-### 7. Show
-
-Show typeとcolumns定義がデータ形式に対応しているか確認します。
-
-### 8. HTML/JavaScript
-
-最終的に生成されたHTMLとブラウザのJavaScriptエラーを確認します。
-
-この順序で確認すると、
-
-```text
-Page選択の問題
-```
-
-と
-
-```text
-Gadgetの問題
-```
-
-と
-
-```text
-表示処理の問題
-```
-
-を切り分けることができます。
-
----
-
-# 30. まとめ
-
-KGraphNaviの主要な責務は、次のように分けて理解するとよいでしょう。
-
-```text
-views.py
-    HTTP
-
-kgraphnavi.py
-    Application / Page / Gadget
-
-sparql.py
-    RDF / SPARQL
-
-utils.py
-    データ変換 / 表示処理
-
-makehtml.py
-    HTML / JavaScript
-
-templates/
-    HTMLテンプレート
-
-YAML
-    Page / Gadget / アプリケーション設定
-```
-
-KGraphNaviを拡張するときは、まず「その変更はどの責務に属するか」を判断し、その責務を担当するモジュールへ実装することを基本とします。
-
-特に、
-
-```text
-設定
- ↓
-Page
- ↓
-Gadget
- ↓
-Extract
- ↓
-データ
- ↓
-Show
- ↓
-HTML / JavaScript
-```
-
-という処理の流れを維持することが、今後の保守性を高める上で重要です。
+| ファイル | 対象 |
+| --- | --- |
+| `test_kgraphnavi.py` | コレクションの作成と絞り込み、ファセットのガジェット、ページ・タブのガジェットへのコレクションの受け渡し、`$collection` の接続、テンプレート |
+| `test_pages.py` | ページの選び方（`/resource` / `/collection` / `/graph`）、接頭辞の展開 |
+| `test_collection.py` | コレクションの SPARQL の生成、絞り込み、範囲、集合演算、値の検証 |
+| `test_facets.py` | ファセットの URL パラメータ・画面部品・分布・候補の検索、ページ送り、行数の制限、列のリンク、`group_by` |
+| `test_terms.py` | 値の検証 |
+| `test_tree.py` | 階層表示（`tree`） |
+
+テストは、SPARQL の問い合わせを記録して決まった結果を返す偽のクライアントを使い、エンドポイントには接続しません。新しい機能には、生成される SPARQL と HTML を確かめるテストを付けてください。
+
+## 6. デバッグ
+
+- `kgraphnavi -d INFO …` で、ガジェットの最終的な SPARQL（`extract_sparql: final query=`）がログに出ます。`-d DEBUG` では結果やセルの内容も出ます。
+- `--dev` で Flask のデバッガと自動再読み込みが有効になります。
+- 画面の表示がおかしいときは、(1) ページの選択（`rdf:type` と `priority`）、(2) ログの SPARQL をエンドポイントで直接実行した結果、(3) 列の定義（`columns` の `id` と変数名）の順に確かめます。
+
+## 7. 既知の問題
+
+| 問題 | 場所 |
+| --- | --- |
+| ガジェットのパス指定 `Gadget(プロパティ)` が、ページの検証（`validate_pages`）で未定義のガジェットとして拒否される。`make_gadget()` には `move_focus()` で対応する処理がある | `app.py` `setconfig.validate_pages` |
+| `show.type: network` / `adjacentnetwork` は、`Gadget.show()` が表示関数に `show_method` と JavaScript のファイル名を渡していないため動かない | `app.py` `Gadget.show`、`render_utils.show_network` |
+| `get.type: csv2adjacent` が使う `Application.import_files` を設定する処理がない | `app.py` |
+| `setconfig()` 内の `validate_gadget_config()` は定義されているが呼ばれていない | `app.py` |
+| `get.values` に未知の関数を書くと、例外にならず `error()`（エラー画面の HTML を返す関数）を呼ぶだけで処理が続く | `app.py` `Gadget._apply_values` |

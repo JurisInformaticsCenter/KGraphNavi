@@ -1,230 +1,159 @@
 # KGraphNavi
 
-KGraphNavi（Knowledge Graph Navigator）は、RDFベースの知識グラフ（Knowledge Graph; KG）を探索・分析するための可視化フレームワークです。
+KGraphNavi（Knowledge Graph Navigator）は、RDF の知識グラフ（Knowledge Graph; KG）を Web 画面で探索・分析するためのフレームワークです。
 
-SPARQLクエリの結果をテーブル、チャート、ネットワークなどの可視化コンポーネントに接続することで、知識グラフに含まれる情報を対話的に探索・分析できます。
-
-KGraphNaviでは、対象とする知識グラフに応じた設定をYAML形式の設定ファイルとして記述することで、異なるデータセットに対応できます。
+SPARQL エンドポイントに問い合わせた結果を、表・グラフ・絞り込み（ファセット）などの部品（ガジェット）で表示します。どのクラスのリソースをどう見せるかは YAML の設定ファイルに書くので、プログラムを変えずに、いろいろな知識グラフに使えます。
 
 ## 主な機能
 
-- RDFベースの知識グラフの探索・可視化
-
-- SPARQLエンドポイントへの問い合わせ
-
-- SPARQLクエリ結果のテーブル表示
-
-- SPARQLクエリ結果のチャート表示
-
-- グラフ構造のネットワーク表示
-
-- RDFリソースの検索
-
-- RDFリソースの詳細情報の表示
-
-- コレクションの表示
-
-- 統計情報の表示
-
-- YAML設定ファイルによる知識グラフごとのカスタマイズ
+- **リソースのページ**: リソースの `rdf:type` に応じたページ（ガジェットの組み合わせ）を表示する。タブで分けることもできる
+- **コレクションのページ**: リソースの集合（クラスのインスタンス、SPARQL で定義した集合、ガジェットの一覧）を一覧・集計する
+- **ファセットでの絞り込み**: 値の選択（いずれか／すべて、候補の検索）と、数値・日付の範囲（分布の棒グラフ付き）
+- **表示部品**: 縦・横の表（リンク・画像・ローカル名表示、同じリソースの行をまとめる、親子の階層表示）、棒グラフ・円グラフ
+- **画面のつながり**: 表の値から、その値で絞り込んだコレクションへ移る。ガジェットの一覧をそのままコレクションとして開く
+- **保存したコレクション**: 絞り込んだコレクションに名前を付けて保存し、和・共通部分・差でまとめる
+- **並べて比べる**: 2〜4 のリソースを列に並べ、同じ種類の情報を横にそろえて比べる（違う行を色付け）
+- **トピック**: キーワードから、語とリンク（カテゴリ・参照など）を手がかりに関係するリソースを集める（試作）
+- **検索**: ラベルによるリソースの検索（部分一致・完全一致）
+- **ファイルの配信**: 文書の HTML などを `/data/...` で配信する
+- **設定**: 設定ファイルの分割（import）、手元の環境だけの設定（`local.yaml`）、設定内容の検証
 
 ## 動作環境
 
 - Python 3.10 以降
-
-- Flask
-
-- PyYAML
-
-- SPARQLWrapper
-
-- SPARQLエンドポイントを提供するRDFストア
-  
-  - 例：Virtuoso
+- Flask 3.1 以降、PyYAML、SPARQLWrapper 2.0 以降
+- SPARQL 1.1 のエンドポイント（Virtuoso を想定。Virtuoso の全文索引 `bif:contains` があれば候補の検索に使う）
 
 ## インストール
 
-リポジトリを取得します。
-
 ```bash
-git clone https://github.com/xiyewenren/KGraphNavi.git
+git clone https://github.com/JurisInformaticsCenter/KGraphNavi.git
 cd KGraphNavi
+pip install -e .            # kgraphnavi コマンドが使えるようになる
+# テストも実行する場合
+pip install -e ".[test]"
 ```
 
-必要なPythonパッケージをインストールします。
+依存パッケージだけを入れる場合は `pip install -r requirements.txt` とし、`python -m kgraphnavi` で起動します。
+
+## 使ってみる（DBpedia のサンプル）
+
+`config/dbpedia.yaml` は、公開の DBpedia（https://dbpedia.org/sparql）を使うサンプルです。インターネットに接続していれば、そのまま動きます。
 
 ```bash
-pip install -r requirements.txt
+kgraphnavi config/dbpedia.yaml
 ```
 
-または、以下のコマンドで主要な依存パッケージをインストールできます。
+Web ブラウザで http://127.0.0.1:8000/ を開き、トップ画面のサンプルから次の画面を試せます。
+
+| 画面 | 内容 | 使っている機能 |
+| --- | --- | --- |
+| マッターホルン（`/resource?uri=…/Matterhorn`） | 山の概要・説明・同じ山脈の山・すべてのデータ | タブ、縦の表、画像、リンク、一覧をコレクションとして開く |
+| ペンニネアルプス（山脈） | この山脈の山 | ファセットで絞り込んだコレクションへ移るボタン |
+| アルプスの山（`/collection?view=AlpsMountains`） | 山の一覧、国別・山脈別の数 | SPARQL で定義した集合、ファセット（国・山脈・標高・初登頂の年）、ページ送り、グラフ |
+| 山（`/collection?class=dbo:Mountain`） | DBpedia のすべての山 | クラスのコレクション |
+| dbo:Mountain（クラス） | インスタンスの一覧・国別の数 | クラスのページでのインスタンスの集計 |
+| `/graph` | 山の多い山脈、クラス階層 | 全体のページ、親子の階層表示 |
+| 山を比べる（`/compare?uri=…/Matterhorn&uri=…/Mont_Blanc&uri=…/Mount_Fuji`） | 概要・カテゴリ・同じ山脈の山を列に並べる | 並べて比べる（カテゴリは行をそろえ、共通・違いを色付け） |
+| アルプスの山の一覧で「比べる」にチェック | 選んだ山を並べて比べる | コレクションから選んで比べる |
+| トピック（上の帯に `stratovolcano`） | 成層火山に関係する山 | キーワードからトピックのコレクションを作る |
+
+DBpedia は大きな知識グラフなので、集計の重い画面では時間がかかったり、エンドポイントの制限で失敗したりすることがあります。DBpedia のエンドポイントがメンテナンス中のときは使えません。
+
+## 自分の知識グラフで使う
+
+1. `config/` に設定ファイル（例 `config/mykg.yaml`）を作り、SPARQL エンドポイント、接頭辞、クラスごとのページとガジェットを書きます（[設定ファイルリファレンス](docs/config.md)、[ユーザーズガイド](docs/user-guide.md)）。
+2. 起動します。
 
 ```bash
-pip install pyyaml flask sparqlwrapper
+kgraphnavi config/mykg.yaml
+kgraphnavi -e http://localhost:8890/sparql config/mykg.yaml   # エンドポイントを指定する
 ```
 
-## 設定ファイル
+手元の環境だけの設定（エンドポイント、配信するフォルダなど）は、設定ファイルと同じフォルダの `local.yaml` に書くと自動で読み込まれ、設定ファイルの値を上書きします（`config/local.yaml.example` を参照。`local.yaml` はリポジトリに含めません）。
 
-KGraphNaviでは、対象とする知識グラフに応じた設定をYAML形式で記述します。
+### コマンドラインのオプション
 
-設定ファイルでは、例えば以下のような情報を指定できます。
+| オプション | 内容 |
+| --- | --- |
+| `config` | 設定ファイル（パス、または `./config/` 内のファイル名） |
+| `-e`, `--endpoint` | SPARQL エンドポイント（設定ファイルより優先。環境変数 `KGRAPHNAVI_ENDPOINT` も可） |
+| `-l`, `--label` | ラベルを表すプロパティ（既定 `rdfs:label`） |
+| `--data-dir` | `/data/<path>` で配信するフォルダ（環境変数 `KGRAPHNAVI_DATA_DIR` も可） |
+| `--local` | ローカル設定ファイル（既定: 設定ファイルと同じフォルダの `local.yaml`） |
+| `--host`, `--port` | 待ち受けるホストとポート（既定 `127.0.0.1:8000`） |
+| `--dev` | 開発モード（Flask のデバッガと自動再読み込み） |
+| `-d`, `--debug` | ログレベル（`DEBUG` / `INFO` / `WARNING`（既定）/ `ERROR` / `CRITICAL`） |
 
-- 知識グラフの名称・説明
+WSGI サーバで動かす場合は、環境変数 `KGRAPHNAVI_CONFIG` に設定ファイルを指定します。
 
-- 利用するRDFストア
-
-- ラベルとして利用するプロパティ
-
-- 検索例
-
-- 表示するリソースのサンプル
-
-- 優先して表示するクラス
-
-- RDFクラスごとのページ定義
-
-- SPARQLを利用したGadgetの定義
-
-- テーブル、チャート、ネットワークなどの表示方法
-
-- 統計ページ
-
-- フィルタ
-
-### 現在の設定例
-
-現在、KGraphNaviでは日本の判例データを対象とした `caselaw.yaml` を使用しています。
-
-```yaml
-- title: caselaw
-  describe: 日本の判例に関するデータ
-  rdfstore: virtuoso
-  label: rdfs:label
+```bash
+KGRAPHNAVI_CONFIG=config/mykg.yaml gunicorn "kgraphnavi.app:create_app_from_env()"
 ```
 
-`caselaw.yaml` では、判例、裁判、判決、判決文書、人物、法令、特許などのRDFクラスに対して、それぞれ表示する情報や関連情報を定義しています。
+## 画面（URL）
 
-また、SPARQLクエリを利用して、例えば以下のような情報を表示できます。
+| URL | 内容 |
+| --- | --- |
+| `/` | トップ画面（説明と、検索・リソース・コレクションのサンプル） |
+| `/search?q=<語>&mode=partial\|perfect` | ラベルによるリソースの検索（部分一致・完全一致） |
+| `/resource?uri=<IRI>` | リソースのページ（`rdf:type` に対応するページ） |
+| `/collection?class=<クラス>` | クラスのインスタンスのコレクション |
+| `/collection?view=<ページ名>` | コレクションのページを名前で指定 |
+| `/collection?from=<ガジェット名>&uri=<IRI>` | ガジェットの一覧をコレクションとして表示 |
+| `/graph` | 知識グラフ全体のページ（`type: graph` のページ） |
+| `/compare?uri=<IRI>&uri=<IRI>…` | 2〜4 のリソースを列に並べて比べる（`&view=<比べ方>`、`?saved=<名前>`、`?from=<ガジェット>&uri=<IRI>` も） |
+| `/collections` | 保存したコレクションの一覧と、まとめる（和・共通部分・差） |
+| `/topic?q=<語>` | キーワードからトピックのコレクションを作る |
+| `/data/<path>`、`/data/<名前>/<path>` | 設定したフォルダのファイルの配信 |
 
-- 裁判官
+コレクションの絞り込みの URL パラメータ（`f.<ファセット名>=…` など）は [コレクションとファセット](docs/collection.md#url-パラメータ) を参照してください。
 
-- 当事者
+## ドキュメント
 
-- 関連ターム
-
-- 参照法令
-
-- 参照特許
-
-- 刑罰
-
-- 判例間の関連
-
-- 判例文書のページ数分布
-
-- 判決意見の構造パターン
+| 文書 | 内容 |
+| --- | --- |
+| [docs/user-guide.md](docs/user-guide.md) | ユーザーズガイド: 考え方と、設定ファイルの書き方の手順 |
+| [docs/config.md](docs/config.md) | 設定ファイルリファレンス: すべての設定項目 |
+| [docs/collection.md](docs/collection.md) | コレクションとファセット |
+| [docs/compare.md](docs/compare.md) | 並べて比べる |
+| [docs/topic.md](docs/topic.md) | トピック（キーワードからコレクションを作る。試作） |
+| [docs/developer-guide.md](docs/developer-guide.md) | 開発者ガイド: ソースコードの構成と拡張の方法 |
 
 ## 設定ファイルの例
 
-リポジトリには、実際の知識グラフに接続しなくても設定ファイルの構造を理解できるよう、サンプル設定として `dbpedia.yaml` を提供する予定です。
-
 ```text
 config/
-├── caselaw.yaml
-└── dbpedia.yaml
+├── dbpedia.yaml          DBpedia のサンプル（公開のエンドポイントで動く）
+├── caselaw.yaml          日本の判例の知識グラフ用（データは準備ができしだい公開予定）
+└── local.yaml.example    ローカル設定の例
 ```
 
-`caselaw.yaml` は現在動作している判例知識グラフ用の設定です。
-
-一方、`dbpedia.yaml` はKGraphNaviの設定方法を理解するためのサンプルとして提供します。
-
-DBpediaを利用する場合は、DBpediaのSPARQLエンドポイントを指定してKGraphNaviを実行できます。
-
-> 注：`dbpedia.yaml` の具体的な設定内容および利用可能なSPARQLエンドポイントについては、サンプル設定の内容を確認してください。
-
-## 起動方法
-
-### 判例データ用設定で起動する
-
-現在の環境では、以下のように起動できます。
+## テスト
 
 ```bash
-cd nii/frontend
-python -m src.kgraphnavi -e http://localhost:8890/sparql config/caselaw.yaml
+pip install -e ".[test]"
+pytest
 ```
 
-または、設定ファイル内で指定されたエンドポイントを利用する場合は、
-
-```bash
-python -m src.kgraphnavi config/caselaw.yaml
-```
-
-とします。
-
-起動後、Webブラウザから以下にアクセスします。
-
-```text
-http://127.0.0.1:8000/
-```
-
-## DBpediaを利用したサンプル
-
-KGraphNaviの基本的な利用方法を確認するため、`config/dbpedia.yaml` をサンプル設定として提供します。
-
-```bash
-cd nii/frontend
-python -m src.kgraphnavi config/dbpedia.yaml
-```
-
-DBpediaを利用する場合、ネットワーク経由でSPARQLエンドポイントにアクセスするため、インターネット接続が必要です。
-
-## Web画面
-
-KGraphNaviでは、以下のような画面を提供します。
-
-| URL                     | 内容         |
-| ----------------------- | ---------- |
-| `/`                     | トップ画面      |
-| `/search?q=...`         | 検索結果       |
-| `/resource?uri=...`     | RDFリソースの詳細 |
-| `/collections?uri=...`  | コレクションビュー  |
-| `/statistics?focus=...` | 統計ページ      |
-| `/data/<path:filename>` | データファイルの配信 |
-
-## データ
-
-KGraphNaviでは、対象とする知識グラフそのものと、KGraphNaviの設定・可視化機能を分離して利用できます。
-
-`caselaw.yaml` は日本の判例に関する知識グラフを対象とした設定例です。
-
-KGraphNaviとともにデータを配布する場合は、データの出典、作成方法、利用条件およびライセンスをデータごとに明記します。
-
-データのライセンスは、ソースコードのライセンスとは別に扱います。
+テストは SPARQL エンドポイントに接続せずに実行できます。
 
 ## ライセンス
 
-KGraphNaviのソースコードは **MIT License** の下で公開する予定です。
+KGraphNavi のソースコードは [MIT License](LICENSE) で公開します。
 
-KGraphNaviとともに配布するデータについては、ソースコードとは別のライセンスを適用します。
-
-本プロジェクトで作成・配布するデータについて **CC BY 4.0** を適用する場合は、`DATA_LICENSE` にその旨を記載します。
-
-ただし、第三者が作成・提供したデータについては、元のデータのライセンスおよび利用条件に従います。
+KGraphNavi とともに配布するデータには、ソースコードとは別のライセンスを適用します。第三者が作成・提供したデータは、元のデータのライセンスと利用条件に従います（DBpedia のデータは CC BY-SA と GFDL）。
 
 ## 引用
 
-KGraphNaviを研究で利用した場合は、以下の研究成果を引用してください。
+KGraphNavi を研究で利用した場合は、以下の研究成果を引用してください。
 
 > ※ 論文情報を確定後に記載予定
 
-将来的には `CITATION.cff` を提供し、GitHubからKGraphNaviを引用できるようにする予定です。
-
 ## 開発状況
 
-KGraphNaviは研究目的で開発されているソフトウェアです。
-
-現在、研究用の知識グラフを対象として開発・検証を行っています。
+KGraphNavi は研究目的で開発しているソフトウェアです。現在、研究用の知識グラフを対象に開発・検証を行っています。
 
 ## 問い合わせ・バグ報告
 
-バグの報告や機能に関する提案は、GitHubのIssuesをご利用ください。
+バグの報告や機能の提案は、GitHub の Issues をご利用ください。

@@ -10,6 +10,7 @@
 ##  コレクションは「?uri を束縛するSPARQLの条件」を式木として表す。
 ##
 ##      ClassCollection      クラスのインスタンス          ?uri a <C> .
+##      AnyCollection        すべてのリソース（検索語などの条件を付けて使う）
 ##      QueryCollection      ?uri を返すSELECT
 ##      UriCollection        URIの列挙                     VALUES ?uri { ... }
 ##      FilteredCollection   絞り込み条件（Condition）を追加
@@ -211,6 +212,46 @@ class RangeCondition:
         )
 
 
+@dataclass(frozen=True)
+class TextCondition:
+    """ラベル（label_predicate の値）に検索語 text を含む（2026.10.19）。
+
+    空白で区切った語は、すべてを含む（AND）。大文字小文字は区別しない。
+    method: "contains"（SPARQL の CONTAINS。ラベルを全件走査する）
+            "bif"（Virtuoso の全文索引 bif:contains で先に絞り、そのうえで CONTAINS で確かめる）
+    exact:  ラベルが検索語と一致する（完全一致）
+    """
+
+    text: str
+    label_predicate: str = "rdfs:label"
+    method: str = "contains"
+    exact: bool = False
+    name: str | None = "q"
+
+    def __post_init__(self):
+        if not str(self.text or "").strip():
+            raise CollectionError("検索語がありません")
+        if self.method not in ("contains", "bif"):
+            raise CollectionError(f"未対応の検索の方法です: {self.method!r}")
+        predicate_term(self.label_predicate)
+
+    def words(self):
+        return [w for w in str(self.text).split() if w]
+
+    def pattern(self, var, index):
+        predicate = predicate_term(self.label_predicate)
+        label_var = f"?_c{index}"
+        lines = [f"{var} {predicate} {label_var} ."]
+        if self.method == "bif" and (expression := bif_text_expression(self.text)):
+            lines.append(f"{label_var} bif:contains {literal_term(expression)} .")
+        if self.exact:
+            lines.append(f"FILTER(STR({label_var}) = {literal_term(str(self.text).strip())})")
+        else:
+            tests = [f"CONTAINS(LCASE(STR({label_var})), {literal_term(word.lower())})" for word in self.words()]
+            lines.append(f"FILTER({' && '.join(tests)})")
+        return "\n".join(lines)
+
+
 # --------------------------------------------------
 # コレクション
 # --------------------------------------------------
@@ -254,6 +295,10 @@ class Collection:
         """predicate の値が value（リストなら いずれか）に一致する条件を追加する。"""
         values = tuple(value) if isinstance(value, (list, tuple, set)) else (value,)
         return self.where(ValueCondition(predicate, values, value_type=value_type, name=name))
+
+    def search(self, text, *, label_predicate="rdfs:label", method="contains", exact=False, name="q"):
+        """ラベルに検索語を含む条件を追加する（TextCondition）。"""
+        return self.where(TextCondition(text, label_predicate, method=method, exact=exact, name=name))
 
     def filter_range(self, predicate, datatype, minimum=None, maximum=None, *, unit=None, name=None):
         """predicate の値が範囲に入る条件を追加する。"""
@@ -475,6 +520,179 @@ class Collection:
         self._count_cache = count
         return count
 
+    def _rank_pattern(self, predicate, value_class=None, value_filter=None):
+        """順位表（rank）の集計の WHERE の中身: コレクションの要素 ?uri と、まとめる値 ?value。
+        value_filter は設定ファイルに書いた FILTER の式（?value の条件）"""
+        predicate = predicate_term(predicate)
+        pattern = f"{_indent(self.to_subquery('?uri'))}\n    ?uri {predicate} ?value ."
+        if value_class:
+            pattern += f"\n    ?value a {iri_term(value_class)} ."
+        if value_filter:
+            pattern += f"\n    FILTER({value_filter})"
+        return pattern
+
+    def rank_query(self, predicate, *, value_class=None, value_filter=None, label_predicate="rdfs:label", lang=None,
+                   order="count", limit=None, offset=None):
+        """順位表: predicate の値ごとに要素を数え、件数の多い順（order="value" なら値の順）に返すSELECT（2026.10.20）。
+
+        facet_query と同じ数え方（要素の COUNT DISTINCT）で、ページ送り（offset）と値のクラスの限定を加えたもの。
+        同じ件数の値は値の順に並べ、ページ送りで行がずれないようにする。
+        """
+        label_predicate = predicate_term(label_predicate)
+        lang_filter = ""
+        if lang:
+            lang_filter = f"\n        FILTER(LANGMATCHES(LANG(?_label), {literal_term(language_tag(lang))}))"
+        order_by = "ORDER BY ?value" if order == "value" else "ORDER BY DESC(?count) ?value"
+        query = (
+            "SELECT ?value (SAMPLE(?_label) AS ?label) (COUNT(DISTINCT ?uri) AS ?count)\n"
+            "WHERE {\n"
+            f"{self._rank_pattern(predicate, value_class, value_filter)}\n"
+            "    OPTIONAL {\n"
+            f"        ?value {label_predicate} ?_label .{lang_filter}\n"
+            "    }\n"
+            "}\n"
+            "GROUP BY ?value\n"
+            f"{order_by}"
+        )
+        if limit is not None:
+            query += f"\nLIMIT {int(limit)}"
+        if offset:
+            query += f"\nOFFSET {int(offset)}"
+        return query
+
+    def rank_total_query(self, predicate, *, value_class=None, value_filter=None):
+        """順位表の値の種類の数"""
+        return (
+            "SELECT (COUNT(DISTINCT ?value) AS ?total)\n"
+            "WHERE {\n"
+            f"{self._rank_pattern(predicate, value_class, value_filter)}\n"
+            "}"
+        )
+
+    def rank_above_query(self, predicate, count, *, value_class=None, value_filter=None):
+        """件数が count より多い値の数（そのページの最初の行の順位を決める）"""
+        return (
+            "SELECT (COUNT(*) AS ?above)\n"
+            "WHERE {\n"
+            "    {\n"
+            "        SELECT ?value (COUNT(DISTINCT ?uri) AS ?c)\n"
+            "        WHERE {\n"
+            f"{_indent(_indent(self._rank_pattern(predicate, value_class, value_filter)))}\n"
+            "        }\n"
+            "        GROUP BY ?value\n"
+            "    }\n"
+            f"    FILTER(?c > {int(count)})\n"
+            "}"
+        )
+
+    def _ratio_core(self, predicate, denominator, *, value_class=None, value_filter=None,
+                    label_predicate="rdfs:label", lang=None, min_denominator=None):
+        """比の順位表の WHERE の中身: 値ごとの件数（?count）と分母（?denominator）と比（?ratio）（2026.10.21）。
+
+        denominator は ?value と ?denominator を返す SELECT（設定ファイルに書く。コレクションの条件は掛からない）。
+        """
+        label_predicate = predicate_term(label_predicate)
+        lang_filter = ""
+        if lang:
+            lang_filter = f"\n            FILTER(LANGMATCHES(LANG(?_label), {literal_term(language_tag(lang))}))"
+        minimum = f"\n    FILTER(?denominator >= {float(min_denominator)})" if min_denominator else ""
+        return (
+            "    {\n"
+            "        SELECT ?value (SAMPLE(?_label) AS ?label) (COUNT(DISTINCT ?uri) AS ?count)\n"
+            "        WHERE {\n"
+            f"{_indent(_indent(self._rank_pattern(predicate, value_class, value_filter)))}\n"
+            "            OPTIONAL {\n"
+            f"                ?value {label_predicate} ?_label .{lang_filter}\n"
+            "            }\n"
+            "        }\n"
+            "        GROUP BY ?value\n"
+            "    }\n"
+            "    {\n"
+            f"{_indent(_indent(denominator.strip()))}\n"
+            "    }\n"
+            "    FILTER(?denominator > 0)"
+            f"{minimum}\n"
+            "    BIND(xsd:double(?count) / xsd:double(?denominator) AS ?ratio)"
+        )
+
+    def get_ratio_rank(self, predicate, denominator, *, value_class=None, value_filter=None,
+                       label_predicate="rdfs:label", lang=None, min_denominator=None, limit=50, offset=0):
+        """比の順位表（件数 ÷ 分母の大きい順）の1ページ分の行と、値の種類の数を返す（2026.10.21）。
+
+        返り値の行には rank・value・label・count・denominator・ratio が入る。比が同じなら同じ順位。
+        """
+        core = self._ratio_core(predicate, denominator, value_class=value_class, value_filter=value_filter,
+                                label_predicate=label_predicate, lang=lang, min_denominator=min_denominator)
+        query = (
+            "SELECT ?value ?label ?count ?denominator ?ratio\nWHERE {\n" + core + "\n}\n"
+            "ORDER BY DESC(?ratio) DESC(?count) ?value"
+            + (f"\nLIMIT {int(limit)}" if limit is not None else "")
+            + (f"\nOFFSET {int(offset)}" if offset else "")
+        )
+        rows = []
+        for row in self._run(query):
+            value = row["value"]["value"]
+            rows.append({
+                "value": value,
+                "label": row.get("label", {}).get("value") or value,
+                "count": int(float(row["count"]["value"])),
+                "denominator": float(row["denominator"]["value"]),
+                "ratio": float(row["ratio"]["value"]),
+                "type": row["value"].get("type", "literal"),
+            })
+        total_rows = self._run("SELECT (COUNT(DISTINCT ?value) AS ?total)\nWHERE {\n" + core + "\n}")
+        total = int(total_rows[0]["total"]["value"]) if total_rows else 0
+        if rows:
+            rank = 1
+            if offset:
+                above = self._run(
+                    "SELECT (COUNT(DISTINCT ?value) AS ?above)\nWHERE {\n" + core
+                    + f"\n    FILTER(?ratio > {rows[0]['ratio']!r})\n}}"
+                )
+                rank = (int(above[0]["above"]["value"]) if above else 0) + 1
+            previous = None
+            for i, row in enumerate(rows):
+                if previous is not None and abs(row["ratio"] - previous) > 1e-12:
+                    rank = (offset or 0) + i + 1
+                row["rank"] = rank
+                previous = row["ratio"]
+        return {"rows": rows, "total": total}
+
+    def get_rank(self, predicate, *, value_class=None, value_filter=None, label_predicate="rdfs:label", lang=None,
+                 order="count", limit=50, offset=0):
+        """順位表の1ページ分の行と、値の種類の数を返す。
+
+        返り値: {"rows": [{"rank", "value", "label", "count", "type"}, ...], "total": 値の種類の数}
+        rank は同じ件数を同じ順位にする（1・2・2・4）。order="value" のときは並び順の番号。
+        """
+        rows = []
+        for row in self._run(self.rank_query(predicate, value_class=value_class, value_filter=value_filter, label_predicate=label_predicate,
+                                             lang=lang, order=order, limit=limit, offset=offset)):
+            value = row["value"]["value"]
+            rows.append({
+                "value": value,
+                "label": row.get("label", {}).get("value") or value,
+                "count": int(row["count"]["value"]),
+                "type": row["value"].get("type", "literal"),
+            })
+        total_rows = self._run(self.rank_total_query(predicate, value_class=value_class, value_filter=value_filter))
+        total = int(total_rows[0]["total"]["value"]) if total_rows else 0
+        if order == "value":
+            for i, row in enumerate(rows):
+                row["rank"] = (offset or 0) + i + 1
+        elif rows:
+            rank = 1
+            if offset:
+                above = self._run(self.rank_above_query(predicate, rows[0]["count"], value_class=value_class, value_filter=value_filter))
+                rank = (int(above[0]["above"]["value"]) if above else 0) + 1
+            previous = None
+            for i, row in enumerate(rows):
+                if previous is not None and row["count"] != previous:
+                    rank = (offset or 0) + i + 1
+                row["rank"] = rank
+                previous = row["count"]
+        return {"rows": rows, "total": total}
+
     def get_facets(self, predicate, *, exclude=None, label_predicate="rdfs:label", lang=None, limit=None,
                    search=None, search_method="contains", value_type="auto"):
         """Facet候補（値・ラベル・件数・値の種類）を件数の多い順に返す。
@@ -550,6 +768,17 @@ class Collection:
                 for value in condition.values:
                     result.append((condition.predicate, value))
         return result
+
+
+class AnyCollection(Collection):
+    """すべてのリソース（主語）の集合。検索語などの条件を付けて使う（/search の検索結果。2026.10.19）。
+    条件を付けると、その条件のパターンだけで ?uri を束縛する"""
+
+    def _pattern(self):
+        return "?uri ?_any_p ?_any_o ."
+
+    def __repr__(self):
+        return "AnyCollection()"
 
 
 class ClassCollection(Collection):
@@ -672,7 +901,8 @@ class FilteredCollection(Collection):
         return FilteredCollection(self._source, kept)
 
     def _pattern(self):
-        lines = [self._source._pattern()]
+        # すべてのリソースの集合に条件を付けたものは、条件のパターンだけにする（全件を走査しない）
+        lines = [] if isinstance(self._source, AnyCollection) and self._conditions else [self._source._pattern()]
         for index, condition in enumerate(self._conditions):
             lines.append(condition.pattern("?uri", index))
         return "\n".join(lines)
