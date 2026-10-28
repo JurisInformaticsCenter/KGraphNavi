@@ -442,6 +442,57 @@ kgraphnavi.errors.ConfigError: 設定エラーが見つかりました:
           gadget: [CountryBar]
 ```
 
+### 6.6 ネットワーク図
+
+`show.type: graph` で、SPARQL の結果の行を辺として、ノードと辺の図を描きます。行の中の2つの変数を `edges` の `from` / `to` に書き、変数ごとのノードの名前・種類を `nodes` に書きます。
+
+要素どうしのつながり（例: 判例の参照関係）:
+
+```yaml
+-   def: gadget
+    name: CitationNetwork
+    title: 判例の参照関係
+    get:
+        type: sparql
+        max_rows: 50000           # 辺の数だけ行を取るので、上限を上げておく
+        src: |
+            SELECT ?entity ?label ?year ?cited ?citedlabel ?citedyear
+            WHERE {
+                $collection
+                ?entity caselawp:citedcaselaw ?cited .
+                OPTIONAL { ?entity rdfs:label ?label }
+                OPTIONAL { ?entity caselawp:year ?year }
+                OPTIONAL { ?cited rdfs:label ?citedlabel }
+                OPTIONAL { ?cited caselawp:year ?citedyear }
+            }
+    show:
+        type: graph
+        edges:
+            - {from: entity, to: cited}           # 判例 → 参照している判例
+        nodes:
+            entity: {label: label, kind: 判例, x: year}
+            cited: {label: citedlabel, kind: 判例, x: citedyear, in_collection: check}
+        layout: timeline          # 年（x）で横に並べる
+```
+
+- `in_collection: check` の変数の値は、コレクションの要素かどうかを調べ、外のものは既定では出しません。`entity` はいつも要素です。
+- 要素と、別の種類のもの（法令の条など）を結ぶ二部グラフは、`layout: bipartite` で2段に並べます。参照される側に `min_degree: 2` を書くと、1つとしかつながらないものを省き、`collection: {facet: <ファセット名>}` を書くと、そのノードから絞り込んだコレクションへ移れます。
+- `project: {keep: article, via: entity}` で、二部グラフの片側どうし（同じ判例で一緒に参照される条）を結んだ図になります。
+- `variants` を書くと、1つのガジェットの上にボタンが出て、問い合わせや表示を切り替えられます（例: 条／法令）。
+- 図の下には、PageRank の上位などの指標の表が出ます。
+
+画面では、次のことができます。
+
+| 操作 | 内容 |
+| --- | --- |
+| ノードをクリック | 右の欄に詳しい情報とつながるノードの一覧。つながるノードを強調する |
+| ノードをダブルクリック | そのリソースのページを開く |
+| 配置 | 年で並べる／2段に並べる／力学モデル／円／格子 |
+| 範囲を選ぶ（Shift＋ドラッグ） | 囲んだノードを選び、要素に名前を付けて保存する。2〜4件なら並べて比べる |
+| 書き出し | 画像（PNG・SVG）、辺・ノードの一覧（CSV）、GraphML |
+
+項目の一覧は [設定ファイルリファレンス](config.md#graphネットワーク図20261028) を参照してください。
+
 ---
 
 ## 7. ファセットで絞り込む
@@ -679,7 +730,19 @@ kgraphnavi.errors.ConfigError: 設定エラーが見つかりました:
 
 ### 「表示件数の上限に達した」と出る
 
-- 1つのガジェットで取得する行数の上限（`max_rows`、既定 5000）に達しています。SPARQL に `LIMIT` を書くか、`max_rows` を増やしてください。
+- 1つのガジェットで取得する行数の上限（`max_rows`、既定 5000）に達しています。SPARQL に `LIMIT` を書くか、`max_rows`（アプリケーション全体、またはガジェットの `get.max_rows`）を増やしてください。
+
+### ネットワーク図が出ない・遅い・線が多すぎる
+
+- 「Cytoscape.js を読み込めませんでした」と出るときは、ブラウザが CDN（cdn.jsdelivr.net）に接続できるか確かめてください。
+- 「コレクションの中のつながりはありません」と出るときは、つながりがすべてコレクションの外です。「コレクション外の参照先も表示する」を押すか、絞り込みをゆるめてください。
+- 大きなコレクションでは、行数の上限（`get.max_rows`）とノードの上限（`max_nodes`、既定 500）で図が一部になります。ファセットで絞り込んでから開いてください。
+- 線が多すぎるときは、図の上の「つながりが ○ 以上」「共有する○○が ○ 以上」の数を上げてください。
+
+### SPARQL のエラーが出る
+
+- 「問い合わせに誤りがあり」と出るときは、設定ファイルの問い合わせ（または KGraphNavi）の誤りです。再読み込みしても直りません。`-d INFO` で起動すると、ログに実行した SPARQL が出ます。
+- 「応答しませんでした」「内部エラー」「接続できませんでした」と出るときは、エンドポイントが混雑・停止しているか、つながりません。少し待ってから再読み込みしてください。
 
 ### 設定エラーで起動しない
 
@@ -698,5 +761,7 @@ kgraphnavi.errors.ConfigError: 設定エラーが見つかりました:
 | ガジェット | 画面の部品（`def: gadget`）。取得（`get`）と表示（`show`）の組 |
 | コレクション | リソースの集合。クラスのインスタンス、SPARQL で定義した集合、ガジェットの一覧など |
 | ファセット | コレクションを値や範囲で絞り込むガジェット |
+| ネットワーク図 | `show.type: graph` のガジェット。SPARQL の結果の行を辺としてノードと辺の図を描く |
+| variants | 1つのガジェットの中で、問い合わせや表示を画面で切り替える設定 |
 | `$uri` | SPARQL の中で、表示中のリソースに置き換わる変数 |
 | `$collection` | SPARQL の中で、コレクションの要素（`?entity`）に置き換わる副問い合わせ |

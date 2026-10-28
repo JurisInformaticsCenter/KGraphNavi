@@ -10,6 +10,7 @@ SPARQL エンドポイントに問い合わせた結果を、表・グラフ・�
 - **コレクションのページ**: リソースの集合（クラスのインスタンス、SPARQL で定義した集合、ガジェットの一覧）を一覧・集計する
 - **ファセットでの絞り込み**: 値の選択（いずれか／すべて、候補の検索）と、数値・日付の範囲（分布の棒グラフ付き）
 - **表示部品**: 縦・横の表（リンク・画像・ローカル名表示、同じリソースの行をまとめる、親子の階層表示）、棒グラフ・円グラフ
+- **ネットワーク図**: コレクションの要素のつながり（参照関係など）、二部グラフ（判例と法令の条など）、片側への射影（一緒に参照される条など）を描く。年で並べる配置、PageRank・連結成分の指標の表、範囲選択したノードの保存、画像・CSV・GraphML での書き出し
 - **画面のつながり**: 表の値から、その値で絞り込んだコレクションへ移る。ガジェットの一覧をそのままコレクションとして開く
 - **保存したコレクション**: 絞り込んだコレクションに名前を付けて保存し、和・共通部分・差でまとめる
 - **並べて比べる**: 2〜4 のリソースを列に並べ、同じ種類の情報を横にそろえて比べる（違う行を色付け）
@@ -22,7 +23,8 @@ SPARQL エンドポイントに問い合わせた結果を、表・グラフ・�
 
 - Python 3.10 以降
 - Flask 3.1 以降、PyYAML、SPARQLWrapper 2.0 以降
-- SPARQL 1.1 のエンドポイント（Virtuoso を想定。Virtuoso の全文索引 `bif:contains` があれば候補の検索に使う）
+- SPARQL 1.1 のエンドポイント（Virtuoso を想定。Virtuoso の全文索引 `bif:contains` があれば候補の検索に使う）。長い問い合わせは POST で送るので、エンドポイントが POST を受け付ける必要がある
+- ブラウザ: 表（jsGrid）・グラフ（Chart.js）・ネットワーク図（Cytoscape.js）のライブラリを CDN から読み込むので、インターネットに接続できること
 
 ## インストール
 
@@ -104,10 +106,11 @@ KGRAPHNAVI_CONFIG=config/mykg.yaml gunicorn "kgraphnavi.app:create_app_from_env(
 | `/graph` | 知識グラフ全体のページ（`type: graph` のページ） |
 | `/compare?uri=<IRI>&uri=<IRI>…` | 2〜4 のリソースを列に並べて比べる（`&view=<比べ方>`、`?saved=<名前>`、`?from=<ガジェット>&uri=<IRI>` も） |
 | `/collections` | 保存したコレクションの一覧と、まとめる（和・共通部分・差） |
+| `POST /collections/save_uris` | ネットワーク図で範囲選択したノードを保存し、そのコレクションを開く |
 | `/topic?q=<語>` | キーワードからトピックのコレクションを作る |
 | `/data/<path>`、`/data/<名前>/<path>` | 設定したフォルダのファイルの配信 |
 
-コレクションの絞り込みの URL パラメータ（`f.<ファセット名>=…` など）は [コレクションとファセット](docs/collection.md#url-パラメータ) を参照してください。
+コレクションの絞り込みの URL パラメータ（`f.<ファセット名>=…` など）と、ネットワーク図の表示を変える URL パラメータ（`graph.outside` など）は [コレクションとファセット](docs/collection.md#url-パラメータ) を参照してください。
 
 ## ドキュメント
 
@@ -115,7 +118,7 @@ KGRAPHNAVI_CONFIG=config/mykg.yaml gunicorn "kgraphnavi.app:create_app_from_env(
 | --- | --- |
 | [docs/user-guide.md](docs/user-guide.md) | ユーザーズガイド: 考え方と、設定ファイルの書き方の手順 |
 | [docs/config.md](docs/config.md) | 設定ファイルリファレンス: すべての設定項目 |
-| [docs/collection.md](docs/collection.md) | コレクションとファセット |
+| [docs/collection.md](docs/collection.md) | コレクションとファセット、ネットワーク図 |
 | [docs/caselaw.md](docs/caselaw.md) | 日本の判例の知識グラフ（RDF の入手・読み込み、caselaw.yaml での動かし方） |
 | [docs/compare.md](docs/compare.md) | 並べて比べる |
 | [docs/topic.md](docs/topic.md) | トピック（キーワードからコレクションを作る。試作） |
