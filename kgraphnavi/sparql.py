@@ -123,6 +123,10 @@ def user_message(status, first_line):
     return f"{head}{tail}" + (f"（{first_line}）" if first_line else "")
 
 
+# これより長い問い合わせ（UTF-8 のバイト数）は POST で送る。GET では URL の長さの上限で切れることがある
+POST_THRESHOLD = 2000
+
+
 class SPARQL:
     __slots__ = ("sparql", "endpoint", "prefix", "retrieve_template", "retrieve_template_perfect")
     def __init__(self, endpoint, prefixes="", label_predicate="rdfs:label"):
@@ -150,6 +154,10 @@ class SPARQL:
         for attempt in range(1 + RETRIES):
             wrapper = SPARQLWrapper(endpoint=self.endpoint, returnFormat='json')
             wrapper.setQuery(full_query)
+            if len(full_query.encode("utf-8")) > POST_THRESHOLD and hasattr(wrapper, "setMethod"):
+                # 長い問い合わせ（URI を多く並べたものなど）は GET の URL に収まらず途中で切れ、
+                # Virtuoso が構文エラー（SP030）にするので POST で送る（2026.10.28）
+                wrapper.setMethod("POST")
             try:
                 response = wrapper.query()
                 logger.debug("SPARQL response=%s", type(response))

@@ -112,7 +112,6 @@ def test_build_graph_asks_collection_for_members():
 def test_membership_query():
     query = membership_query("{ SELECT ?uri WHERE { ?uri a <http://ex.org/C> } }", ["http://ex.org/a"])
     assert "FILTER(?uri IN (<http://ex.org/a>))" in query
-    assert "VALUES" not in query      # Virtuoso は VALUES と副問い合わせの並びを構文エラーにする
 
 
 def test_isolated_nodes_are_hidden():

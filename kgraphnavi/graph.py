@@ -49,7 +49,7 @@ DEFAULT_MAX_NODES = 500
 # 名前を常に出すノードの数（大きい順）。他はマウスを乗せる・選ぶと出す
 LABELLED_NODES = 30
 # コレクションの要素かを調べる問い合わせ1回あたりの URI の数
-MEMBERSHIP_BATCH = 500
+MEMBERSHIP_BATCH = 300
 
 SHOW_KEYS = {"type", "edges", "nodes", "outside", "layout", "max_nodes", "size", "height", "isolated"}
 EDGE_KEYS = {"from", "to", "directed", "label"}
@@ -206,8 +206,8 @@ def collect_graph(rows, show):
 def membership_query(subquery, uris):
     """uris のうちコレクションの要素であるものを求める SELECT
 
-    VALUES ?uri { ... } と副問い合わせを並べると Virtuoso が構文エラー（SP030）にするので、
     ファセットの絞り込みと同じ FILTER(?uri IN (...)) で限る。
+    URI を多く並べて長くなるので、SPARQL クライアントは POST で送る（sparql.POST_THRESHOLD）。
     """
     values = ", ".join(iri_term(u) for u in uris)
     return (

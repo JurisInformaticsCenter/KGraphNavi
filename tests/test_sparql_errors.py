@@ -94,3 +94,34 @@ def test_gadget_error_does_not_break_page():
     html = r.get_data(as_text=True)
     assert r.status_code == 200
     assert "gadget-error" in html and "HTTP 502" in html
+
+
+def test_long_query_is_sent_by_post(monkeypatch):
+    """URI を多く並べた長い問い合わせは、GET の URL で切れないよう POST で送る"""
+    sent = []
+
+    class RecordingWrapper:
+        def __init__(self, *args, **kwargs):
+            self.method = "GET"
+
+        def setQuery(self, query):
+            self.text = query
+
+        def setMethod(self, method):
+            self.method = method
+
+        def query(self):
+            sent.append((self.method, len(self.text)))
+
+            class Response:
+                def convert(self):
+                    return {"results": {"bindings": []}}
+            return Response()
+
+    monkeypatch.setattr(sparql_module, "SPARQLWrapper", RecordingWrapper)
+    client = sparql_module.SPARQL("http://example.org/sparql")
+    client.exsparql("SELECT ?s WHERE { ?s ?p ?o }")
+    iris = ", ".join(f"<http://ds.rois.ac.jp/caselaw/resource/D{i:06d}>" for i in range(300))
+    client.exsparql(f"SELECT ?uri WHERE {{ ?uri a ?c FILTER(?uri IN ({iris})) }}")
+    assert sent[0][0] == "GET"
+    assert sent[1][0] == "POST"
