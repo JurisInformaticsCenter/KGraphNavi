@@ -204,13 +204,17 @@ def collect_graph(rows, show):
 
 
 def membership_query(subquery, uris):
-    """uris のうちコレクションの要素であるものを求める SELECT"""
-    values = " ".join(iri_term(u) for u in uris)
+    """uris のうちコレクションの要素であるものを求める SELECT
+
+    VALUES ?uri { ... } と副問い合わせを並べると Virtuoso が構文エラー（SP030）にするので、
+    ファセットの絞り込みと同じ FILTER(?uri IN (...)) で限る。
+    """
+    values = ", ".join(iri_term(u) for u in uris)
     return (
         "SELECT DISTINCT ?uri\n"
         "WHERE {\n"
-        f"    VALUES ?uri {{ {values} }}\n"
         f"{subquery}\n"
+        f"    FILTER(?uri IN ({values}))\n"
         "}"
     )
 
