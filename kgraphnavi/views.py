@@ -24,6 +24,7 @@ from .facets import request_params, facet_selection, SEARCH_PARAM, SEARCH_MODE_P
 from .app import BUILTIN_COLLECTION_PAGE, BUILTIN_SEARCH_PAGE, TYPE_FACET, expand_prefixed
 from .errors import KGraphError, SparqlError, CollectionError      # 作成した例外クラス
 from .collection import Collection
+from .terms import is_iri
 from .saved import check_name, OPERATIONS
 from .topic import TopicBuilder, CommandTopicBuilder, render_topic, override_from_args
 from .compare import items_from_args, choose_view, sort_items, render_compare, COMPARE_MAX
@@ -370,6 +371,37 @@ def init_app(app):
         except CollectionError as e:
             return redirect("/collections?" + urlencode([("err", str(e))]))
         return redirect("/collections?" + urlencode([("msg", f"「{data['name']}」として {data['count']:,} 件を保存しました")]))
+
+    @app.route("/collections/save_uris", methods=["POST"])
+    def save_selected_uris() -> Response:
+        """ネットワーク図で選んだノード（URI）に名前を付けて保存し、そのコレクションを開く（2026.10.28）"""
+        application = current_app.extensions["application"]
+        store = application.saved_store
+        if store is None:
+            return error("コレクションを保存できない", "設定 saved_collections_dir を指定してください"), 404
+        uris = [u.strip() for u in request.form.getlist("uris") if u.strip()]
+        try:
+            name = check_name(request.form.get("name", ""))
+            if not uris:
+                raise CollectionError("保存するノードが選ばれていません")
+            bad = [u for u in uris if not is_iri(u)]
+            if bad:
+                raise CollectionError(f"URI として使えない値があります: {bad[0]}")
+            limit = int(application.saved_max)
+            if len(uris) > limit:
+                raise CollectionError(f"{len(uris):,} 件あり、保存できる上限（{limit:,} 件）を超えています")
+            class_uri = (request.form.get("class") or "").strip() or None
+            if class_uri:
+                class_uri = expand_prefixed(class_uri, application.prefixes)
+                if not is_iri(class_uri):
+                    raise CollectionError(f"クラスとして使えない値です: {class_uri}")
+            source = request.form.get("source", "")
+            data = store.save(name, uris, source=source, class_uri=class_uri,
+                              overwrite=bool(request.form.get("overwrite")),
+                              extra={"selected_from": "graph"})
+        except CollectionError as e:
+            return redirect("/collections?" + urlencode([("err", str(e))]))
+        return redirect("/collection?" + urlencode([("saved", data["name"])]))
 
     @app.route("/collections/merge", methods=["POST"])
     def merge_collections() -> Response:

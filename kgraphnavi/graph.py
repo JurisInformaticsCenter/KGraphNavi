@@ -82,7 +82,7 @@ LABELLED_NODES = 30
 MEMBERSHIP_BATCH = 300
 
 SHOW_KEYS = {"type", "edges", "nodes", "outside", "layout", "max_nodes", "size", "height", "isolated",
-             "project", "metrics"}
+             "project", "metrics", "select_class"}
 PROJECT_KEYS = {"keep", "via", "min_weight", "max_shared", "label"}
 EDGE_KEYS = {"from", "to", "directed", "label"}
 NODE_KEYS = {"label", "kind", "x", "in_collection", "min_degree", "collection"}
@@ -708,6 +708,7 @@ OUTSIDE_COLOR = "#9ca3af"
 def graph_payload(graph):
     """Cytoscape.js に渡す JSON（elements と表示の設定）"""
     colors = {kind: KIND_COLORS[i % len(KIND_COLORS)] for i, kind in enumerate(graph["kinds"])}
+    metrics_by_id = {row["id"]: row for row in ((graph.get("metrics") or {}).get("rows") or [])}
     elements = []
     for node in graph["nodes"]:
         data = {
@@ -726,6 +727,12 @@ def graph_payload(graph):
             data["x"] = int(node["x"]) if float(node["x"]).is_integer() else node["x"]
         if node.get("filter"):
             data["filter"] = node["filter"]
+        if node["in_collection"]:
+            data["element"] = True       # 範囲選択で保存するのは、コレクションの要素の側（判例）だけ
+        metric = metrics_by_id.get(node["id"])
+        if metric:
+            data["pagerank"] = round(metric["pagerank"] * len(metrics_by_id), 4)
+            data["component"] = metric["component"]
         element = {"data": data, "classes": " ".join(
             c for c, on in (("outside", node["outside"]), ("labelled", node.get("labelled")),
                             ("top", node.get("side") == "top")) if on
@@ -744,6 +751,8 @@ def graph_payload(graph):
     sizes = [node["size"] for node in graph["nodes"]] or [0]
     weights = [edge["weight"] for edge in graph["edges"]] or [1]
     return {
+        "title": graph.get("title") or "graph",
+        "save": graph.get("save"),
         "weight_range": [min(weights), max(weights)],
         "elements": elements,
         "layout": graph["layout"],
@@ -825,8 +834,21 @@ def render_graph(graph, params=None, height=None):
     <span class="kg-graph-tools">
       <label>配置 <select class="kg-graph-layout">{layouts}</select></label>
       <button type="button" class="kg-graph-fit">全体を表示</button>
+      <button type="button" class="kg-graph-select" aria-pressed="false"
+              title="ドラッグで囲んだノードを選びます（Shift を押しながらドラッグしても選べます）">範囲を選ぶ</button>
+      <details class="kg-graph-export">
+        <summary>書き出し</summary>
+        <div class="kg-graph-export-menu">
+          <button type="button" data-export="png">画像（PNG）</button>
+          <button type="button" data-export="svg">画像（SVG）</button>
+          <button type="button" data-export="edges">辺の一覧（CSV）</button>
+          <button type="button" data-export="nodes">ノードの一覧（CSV）</button>
+          <button type="button" data-export="graphml">GraphML</button>
+        </div>
+      </details>
     </span>
   </div>
+  <div class="kg-graph-selection" hidden></div>
   {''.join(f'<p class="gadget-notice">{escape(n)}</p>' for n in notes)}
   {_outside_toggle(graph, params)}
   {_min_degree_links(graph, params)}

@@ -2383,6 +2383,7 @@
             cited: {label: citedlabel, kind: 判例, x: citedyear, in_collection: check}
         outside: hide
         layout: timeline
+        select_class: caselawo:CaseLawDocument   # 範囲選択した判例を保存するときのクラス
         max_nodes: 500
         height: 640
 -   def: gadget
@@ -2414,6 +2415,7 @@
             article: {label: articlelabel, kind: 条, min_degree: 2,
                       collection: {facet: reflaw_core_clause}}
         layout: bipartite
+        select_class: caselawo:CaseLawDocument
         max_nodes: 600
         height: 640
     variants:

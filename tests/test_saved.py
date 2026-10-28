@@ -93,3 +93,21 @@ def test_merge_and_delete_routes(client):
     assert "msg=" in r.headers["Location"] and store.get("ab")["uris"] == [A, B, C]
     r = c.post("/collections/delete", data={"delete": "ab"})
     assert not store.exists("ab")
+
+
+def test_save_selected_uris_from_graph(client):
+    """ネットワーク図で範囲選択したノードを保存し、そのコレクションを開く（2026.10.28）"""
+    c, _sent, application = client
+    r = c.post("/collections/save_uris", data={"name": "図から", "uris": [A, B, A], "class": "dbo:Mountain",
+                                               "source": "/collection?class=dbo:Mountain&tab=1"})
+    assert r.status_code == 302 and r.headers["Location"].startswith("/collection?saved=")
+    data = application.saved_store.get("図から")
+    assert data["uris"] == [A, B] and data["class"] == DBO + "Mountain" and data["selected_from"] == "graph"
+    # 誤り: URI でない値、選んでいない、上限、同じ名前
+    for form in ({"name": "x", "uris": ["not an iri"]}, {"name": "x"}, {"name": "../x", "uris": [A]},
+                 {"name": "図から", "uris": [C]}):
+        r = c.post("/collections/save_uris", data=form)
+        assert "err=" in r.headers["Location"]
+    application.saved_max = 1
+    r = c.post("/collections/save_uris", data={"name": "多い", "uris": [A, B]})
+    assert "err=" in r.headers["Location"] and not application.saved_store.exists("多い")

@@ -492,3 +492,36 @@ def test_metrics_table():
 def test_validate_project_errors(project):
     with pytest.raises(ConfigError):
         validate_graph_show("g", {**BI_SHOW, "project": project})
+
+
+# --------------------------------------------------
+# 範囲選択・書き出し（2026.10.28）
+# --------------------------------------------------
+
+def test_payload_marks_elements_and_metrics():
+    from kgraphnavi.graph import graph_payload
+    graph = build_graph(BI_ROWS, BI_SHOW)
+    graph["title"] = "判例と参照法令"
+    graph["save"] = {"action": "/collections/save_uris", "class": CLASS, "source": "/collection?x", "max": 10}
+    payload = graph_payload(graph)
+    nodes = {e["data"]["id"]: e["data"] for e in payload["elements"] if "source" not in e["data"]}
+    assert nodes[DOC + "A"].get("element") and not nodes[LAW + "709"].get("element")
+    assert nodes[LAW + "709"]["pagerank"] > 0 and nodes[LAW + "709"]["component"] == 1
+    assert payload["title"] == "判例と参照法令" and payload["save"]["class"] == CLASS
+    html = render_graph(graph, request_params(MultiDict(), path="/collection"))
+    for kind in ("png", "svg", "edges", "nodes", "graphml"):
+        assert f'data-export="{kind}"' in html
+    assert "範囲を選ぶ" in html and 'class="kg-graph-selection" hidden' in html
+
+
+def test_graph_save_info():
+    application = Application.__new__(Application)
+    application.saved_store = None
+    assert application.graph_save_info({}, {}) is None
+    application.saved_store = object()
+    application.prefixes = {"caselawo": "http://ds.rois.ac.jp/caselaw/ontology/"}
+    application.saved_max = 500
+    params = request_params(MultiDict([("class", "caselawo:Trial"), ("tab", "4")]), path="/collection")
+    info = application.graph_save_info({"select_class": "caselawo:CaseLawDocument"}, params)
+    assert info["class"] == CLASS and info["max"] == 500 and info["source"] == "/collection?class=caselawo%3ATrial&tab=4"
+    assert application.graph_save_info({}, params)["class"] == "http://ds.rois.ac.jp/caselaw/ontology/Trial"

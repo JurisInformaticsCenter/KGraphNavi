@@ -1052,3 +1052,120 @@ a.kg-variant:hover {
   color: #075985;
   font-size: 11px;
 }
+
+/* ネットワーク図: 範囲選択・書き出し（2026.10.28） */
+.kg-graph-select.active {
+  background: #0369a1;
+  border-color: #0369a1;
+  color: #fff;
+}
+
+.kg-graph.kg-graph-selecting {
+  cursor: crosshair;
+  outline: 2px solid #f59e0b;
+  outline-offset: -2px;
+}
+
+.kg-graph-export {
+  position: relative;
+}
+
+.kg-graph-export summary {
+  padding: 2px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #fff;
+  font-size: 13px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.kg-graph-export summary::-webkit-details-marker {
+  display: none;
+}
+
+.kg-graph-export summary::after {
+  content: " ▾";
+  color: #64748b;
+}
+
+.kg-graph-export-menu {
+  position: absolute;
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  min-width: 170px;
+  margin-top: 4px;
+  padding: 4px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+}
+
+.kg-graph-tools .kg-graph-export-menu button {
+  border: none;
+  text-align: left;
+  padding: 5px 8px;
+}
+
+.kg-graph-tools .kg-graph-export-menu button:hover {
+  background: #f1f5f9;
+}
+
+.kg-graph-selection {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin: 0 0 6px;
+  padding: 6px 10px;
+  border: 1px solid #fcd34d;
+  border-radius: 6px;
+  background: #fffbeb;
+  font-size: 13px;
+}
+
+.kg-graph-selection[hidden] {
+  display: none;
+}
+
+.kg-graph-selection-count {
+  font-weight: 600;
+  color: #92400e;
+}
+
+.kg-graph-save {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+
+.kg-graph-save input[type="text"] {
+  width: 12em;
+  padding: 2px 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+}
+
+.kg-graph-save label {
+  margin: 0;
+}
+
+.kg-graph-save button,
+.kg-graph-unselect {
+  padding: 2px 10px;
+  border: 1px solid #0369a1;
+  border-radius: 4px;
+  background: #fff;
+  color: #0369a1;
+  cursor: pointer;
+}
+
+.kg-graph-save button {
+  background: #0369a1;
+  color: #fff;
+}

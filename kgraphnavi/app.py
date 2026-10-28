@@ -55,6 +55,7 @@ from .facets import (
     render_pager,
     render_rank,
     make_url,
+    current_url,
     TAB_PARAM,
     RANK_PAGE_PARAM,
 )
@@ -1144,6 +1145,8 @@ class Application:
             content = build_graph(content, gadget.show_method, collection=collection, params=params)
             content["params"] = params
             content["rows_truncated"] = rows_truncated
+            content["title"] = self.gadget_title(name, gadget)
+            content["save"] = self.graph_save_info(gadget.show_method, params)
         # 表示（コレクションのページで要素 ?entity の一覧なら、選んで比べるチェックボックスの列を付ける。2026.10.26）
         shown_gadget, content = with_select_column(gadget, content) if collection is not None else (gadget, content)
         gadget_body = variant_bar + shown_gadget.show(content)
@@ -1199,6 +1202,20 @@ class Application:
         {gadget_body}
         </section>
         """
+
+    def graph_save_info(self, show, params):
+        """ネットワーク図で範囲選択したノードを保存するための情報（保存先がなければ None）"""
+        if getattr(self, "saved_store", None) is None:
+            return None
+        class_uri = show.get("select_class") or (params or {}).get("class")
+        if class_uri:
+            class_uri = expand_prefixed(str(class_uri), getattr(self, "prefixes", {}) or {})
+        return {
+            "action": "/collections/save_uris",
+            "class": class_uri,
+            "source": current_url(params),
+            "max": int(getattr(self, "saved_max", DEFAULT_SAVE_MAX)),
+        }
 
     @staticmethod
     def gadget_title(gadget_name, gadget):
