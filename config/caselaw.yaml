@@ -2343,6 +2343,11 @@
           lazy: true
           gadget:
             - CitationNetwork
+        # 判例と、判断の中で参照している法令の条（または法令）の二部グラフ（2026.10.28）
+        - label: 参照法令の図
+          lazy: true
+          gadget:
+            - RefLawNetwork
         - label: 参照の多い法令の条
           lazy: true
           gadget:
@@ -2380,6 +2385,58 @@
         layout: timeline
         max_nodes: 500
         height: 640
+-   def: gadget
+    name: RefLawNetwork
+    # コレクションの判例と、判断の中で参照している法令の条(caselawp:reflawCore)の二部グラフ。
+    # 条は順位表(RankRefLawCoreClause)と同じく、条の単位(law:<法令ID>_<条>)だけ。「条／法令」を画面で切り替える
+    # (v.RefLawNetwork=law)。多くの判例に共通する条を見るため、既定では2件以上の判例が参照する条だけ出す。2026.10.28
+    title: 判例と参照法令
+    get:
+        type: sparql
+        max_rows: 50000
+        src: |
+            SELECT ?entity ?label ?year ?article ?articlelabel
+            WHERE {
+                $collection
+                ?entity caselawp:reflawCore ?article .
+                ?article a lawo:Clause .
+                FILTER(!CONTAINS(STRAFTER(STR(?article), "_"), "_"))
+                OPTIONAL { ?entity rdfs:label ?label }
+                OPTIONAL { ?entity caselawp:year ?year }
+                OPTIONAL { ?article rdfs:label ?articlelabel }
+            }
+    show:
+        type: graph
+        edges:
+            - {from: entity, to: article, directed: false}
+        nodes:
+            entity: {label: label, kind: 判例, x: year}
+            article: {label: articlelabel, kind: 条, min_degree: 2,
+                      collection: {facet: reflaw_core_clause}}
+        layout: bipartite
+        max_nodes: 600
+        height: 640
+    variants:
+        - name: clause
+          label: 条
+        - name: law
+          label: 法令
+          get:
+              src: |
+                  SELECT DISTINCT ?entity ?label ?year ?article ?articlelabel
+                  WHERE {
+                      $collection
+                      ?entity caselawp:reflawCore ?clause .
+                      ?clause lawp:law ?article .
+                      OPTIONAL { ?entity rdfs:label ?label }
+                      OPTIONAL { ?entity caselawp:year ?year }
+                      OPTIONAL { ?article rdfs:label ?articlelabel }
+                  }
+          show:
+              nodes:
+                  entity: {label: label, kind: 判例, x: year}
+                  article: {label: articlelabel, kind: 法令, min_degree: 2,
+                            collection: {facet: reflaw_core}}
 -   def: gadget
     name: CaseLawDocumentList
     title: 判決文書

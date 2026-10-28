@@ -155,18 +155,17 @@ def test_to_number(value, expected):
 
 def test_timeline_positions_orders_columns_by_x():
     nodes, edges = collect_graph(ROWS, SHOW)
-    timeline_positions(nodes, edges)
-    xs = {n: node["position"]["x"] for n, node in nodes.items()}
+    positions = timeline_positions(nodes, edges)
+    xs = {n: p["x"] for n, p in positions.items()}
     assert xs[DOC + "X"] < xs[DOC + "C"] < xs[DOC + "B"] < xs[DOC + "A"] < xs[DOC + "D"]
     # 同じ年のノードは縦に並べる
     rows = [cite("A", "B", 2000, 1990), cite("C", "D", 2000, 1990)]
     nodes, edges = collect_graph(rows, SHOW)
-    timeline_positions(nodes, edges)
-    assert nodes[DOC + "A"]["position"]["x"] == nodes[DOC + "C"]["position"]["x"]
-    assert nodes[DOC + "A"]["position"]["y"] != nodes[DOC + "C"]["position"]["y"]
+    p = timeline_positions(nodes, edges)
+    assert p[DOC + "A"]["x"] == p[DOC + "C"]["x"]
+    assert p[DOC + "A"]["y"] != p[DOC + "C"]["y"]
     # 辺でつながるノードは同じ高さの側に寄せる
-    assert (nodes[DOC + "A"]["position"]["y"] < nodes[DOC + "C"]["position"]["y"]) == \
-           (nodes[DOC + "B"]["position"]["y"] < nodes[DOC + "D"]["position"]["y"])
+    assert (p[DOC + "A"]["y"] < p[DOC + "C"]["y"]) == (p[DOC + "B"]["y"] < p[DOC + "D"]["y"])
 
 
 def test_render_graph_payload_is_safe_json():
@@ -228,3 +227,179 @@ def test_make_gadget_draws_graph_in_collection_page():
     assert "tab=3" in html and "graph.outside=show" in html
     # ガジェットの max_rows がアプリの上限より優先
     assert "LIMIT 10001" in sparql.queries[0]
+
+
+# --------------------------------------------------
+# 二部グラフ（判例と法令の条）・min_degree・ノードからコレクションへ・variants（2026.10.28）
+# --------------------------------------------------
+
+LAW = "http://lod4all.net/law/resource/129AC0000000089_"
+BI_SHOW = {
+    "type": "graph",
+    "edges": [{"from": "entity", "to": "article", "directed": False}],
+    "nodes": {
+        "entity": {"label": "label", "kind": "判例", "x": "year"},
+        "article": {"label": "articlelabel", "kind": "条", "min_degree": 2,
+                    "collection": {"facet": "reflaw_core_clause"}},
+    },
+    "layout": "bipartite",
+}
+
+
+def ref(doc, article, year=2000):
+    return {"entity": uri(DOC + doc), "label": lit(f"判例{doc}"), "year": lit(year),
+            "article": uri(LAW + article), "articlelabel": lit(f"民法第{article}条")}
+
+
+BI_ROWS = [ref("A", "709", 1990), ref("B", "709", 2000), ref("C", "709", 2010),
+           ref("A", "1", 1990), ref("B", "1", 2000),
+           ref("C", "90", 2010),                     # 1件の判例だけが参照する条
+           ref("D", "415", 2015)]                    # D は 1件だけの条しか参照しない → 孤立して消える
+
+
+def test_min_degree_drops_rarely_cited_articles():
+    graph = build_graph(BI_ROWS, BI_SHOW)
+    ids = {n["id"] for n in graph["nodes"]}
+    assert ids == {DOC + "A", DOC + "B", DOC + "C", LAW + "709", LAW + "1"}
+    assert graph["min_degree"] == 2 and graph["min_kinds"] == ["条"]
+    # URL の graph.min で変えられる
+    params = request_params(MultiDict([("graph.min", "1")]), path="/collection")
+    graph = build_graph(BI_ROWS, BI_SHOW, params=params)
+    assert LAW + "90" in {n["id"] for n in graph["nodes"]} and graph["min_degree"] == 1
+    params = request_params(MultiDict([("graph.min", "3")]), path="/collection")
+    assert {n["id"] for n in build_graph(BI_ROWS, BI_SHOW, params=params)["nodes"]} == \
+        {DOC + "A", DOC + "B", DOC + "C", LAW + "709"}
+
+
+def test_bipartite_positions_two_rows():
+    graph = build_graph(BI_ROWS, BI_SHOW)
+    assert graph["layout"] == "bipartite"
+    assert set(graph["positions"]) == {"timeline", "bipartite"}
+    nodes = {n["id"]: n for n in graph["nodes"]}
+    # 条は上の段（y=0）、判例は下の段
+    assert nodes[LAW + "709"]["position"]["y"] == 0 and nodes[LAW + "709"]["side"] == "top"
+    assert nodes[DOC + "A"]["position"]["y"] > 0 and nodes[DOC + "A"]["side"] == "bottom"
+    # 判例は年の順
+    assert nodes[DOC + "A"]["position"]["x"] < nodes[DOC + "B"]["position"]["x"] < nodes[DOC + "C"]["position"]["x"]
+    # 名前を常に出すのは上の段だけ
+    assert nodes[LAW + "709"].get("labelled") and not nodes[DOC + "A"].get("labelled")
+    # 条の大きさは参照する判例の数
+    assert nodes[LAW + "709"]["size"] == 3
+
+
+def test_bipartite_staggers_many_bottom_nodes():
+    rows = [ref(f"N{i:03d}", "709", 1950 + i) for i in range(200)] + \
+           [ref(f"N{i:03d}", "1", 1950 + i) for i in range(0, 200, 2)]
+    graph = build_graph(rows, {**BI_SHOW, "max_nodes": 1000})
+    ys = {n["position"]["y"] for n in graph["nodes"] if n["side"] == "bottom"}
+    assert len(ys) > 1          # 下の段を何列かに互い違いに並べる
+    xs = [n["position"]["x"] for n in graph["nodes"]]
+    assert max(xs) - min(xs) < 200 * 22   # 1列に並べたときより狭い
+
+
+def test_node_filter_url():
+    params = request_params(MultiDict([("class", CLASS), ("tab", "5"), ("f.year.min", "2000")]), path="/collection")
+    graph = build_graph(BI_ROWS, BI_SHOW, params=params)
+    article = next(n for n in graph["nodes"] if n["id"] == LAW + "709")
+    # コレクションのページでは、今の条件にその条の条件を加える（タブはそのまま）
+    assert "f.reflaw_core_clause=" in article["filter"] and "tab=5" in article["filter"]
+    assert "f.year.min=2000" in article["filter"]
+    assert "filter" not in next(n for n in graph["nodes"] if n["id"] == DOC + "A")
+    # コレクションでないページでは class のコレクションへ
+    from kgraphnavi.graph import node_filter_url
+    url = node_filter_url({"facet": "reflaw_core_clause", "class": "caselawo:CaseLawDocument"}, LAW + "709",
+                          request_params(MultiDict(), path="/resource"))
+    assert url.startswith("/collection?class=caselawo%3ACaseLawDocument&f.reflaw_core_clause=")
+    assert node_filter_url({"facet": "x"}, LAW + "709", request_params(MultiDict(), path="/resource")) is None
+    html = render_graph(graph, params)
+    assert '"filter":' in html
+    assert "表示する条: つながりが" in html and "graph.min=3" in html
+    assert '<option value="bipartite" selected>2段に並べる</option>' in html
+
+
+@pytest.mark.parametrize("nodes", [
+    {"article": {"min_degree": 0}},
+    {"article": {"collection": {"class": "x"}}},
+    {"article": {"collection": {"facet": "a b"}}},
+    {"article": {"collection": {"facet": "f", "colour": "red"}}},
+])
+def test_validate_graph_nodes_errors(nodes):
+    with pytest.raises(ConfigError):
+        validate_graph_show("g", {"type": "graph", "edges": [{"from": "entity", "to": "article"}], "nodes": nodes})
+
+
+# ---- ガジェットの variants（画面で問い合わせ・表示を切り替える）----
+
+from kgraphnavi.app import setconfig, parse_variants
+
+
+def gadget_config(**extra):
+    return {"def": "gadget", "name": "RefLawNetwork",
+            "get": {"type": "sparql", "src": "SELECT * WHERE { $collection ?entity <p> ?article }"},
+            "show": BI_SHOW, **extra}
+
+
+VARIANTS = [
+    {"name": "clause", "label": "条"},
+    {"name": "law", "label": "法令",
+     "get": {"src": "SELECT * WHERE { $collection ?entity <p>/<law> ?article }"},
+     "show": {"nodes": {"entity": {"kind": "判例"}, "article": {"kind": "法令", "min_degree": 1}}}},
+]
+
+
+def test_setconfig_variants_and_graph_validation():
+    cfg = setconfig([gadget_config(variants=VARIANTS)])
+    assert [v["name"] for v in cfg["gadgetset"]["RefLawNetwork"].variants] == ["clause", "law"]
+    # graph の設定の誤りは、設定を読むときにエラーにする（variants で重ねたものも）
+    with pytest.raises(ConfigError):
+        setconfig([gadget_config(show={**BI_SHOW, "layout": "spring"})])
+    with pytest.raises(ConfigError):
+        setconfig([gadget_config(variants=[{"name": "x", "show": {"outside": "grey"}}])])
+    with pytest.raises(ConfigError):
+        setconfig([gadget_config(get={"type": "sparql", "src": "x", "max_rows": 0})])
+
+
+@pytest.mark.parametrize("variants", [
+    [], "law", [{"label": "名前なし"}], [{"name": "a"}, {"name": "a"}], [{"name": "a", "colour": "x"}],
+    [{"name": "a", "get": "x"}],
+])
+def test_parse_variants_errors(variants):
+    with pytest.raises(ConfigError):
+        parse_variants("g", {"variants": variants})
+
+
+def test_make_gadget_switches_variant():
+    class SPARQL:
+        def __init__(self):
+            self.queries = []
+
+        def query(self, query, params=None):
+            self.queries.append(query)
+            return BI_ROWS
+
+    sparql = SPARQL()
+    gadget = setconfig([gadget_config(variants=VARIANTS)])["gadgetset"]["RefLawNetwork"]
+    gadget.sparql_client = sparql
+    application = Application.__new__(Application)
+    application.gadgetset = {"RefLawNetwork": gadget}
+    application.sparql_client = sparql
+    application.max_rows = 100
+    collection = Collection.from_class(sparql, CLASS)
+
+    params = request_params(MultiDict([("class", CLASS), ("tab", "5")]), path="/collection")
+    html = application.make_gadget("RefLawNetwork", None, params=params, collection=collection)
+    assert '<span class="kg-variant current">条</span>' in html
+    assert "v.RefLawNetwork=law" in html
+    assert "<p>/<law>" not in sparql.queries[-1]
+
+    params = request_params(MultiDict([("class", CLASS), ("tab", "5"), ("v.RefLawNetwork", "law"),
+                                       ("graph.min", "3")]), path="/collection")
+    html = application.make_gadget("RefLawNetwork", None, params=params, collection=collection)
+    assert '<span class="kg-variant current">法令</span>' in html
+    assert "<p>/<law>" in sparql.queries[-1]
+    assert "表示する法令" in html
+    # 条に戻すリンクでは、数の条件（graph.min）を外す
+    switch = re.search(r'<a class="kg-variant" href="([^"]+)">条</a>', html).group(1)
+    assert "v.RefLawNetwork=clause" in switch and "graph.min" not in switch
+    # 元のガジェットの設定は変えない
+    assert gadget.show_method["nodes"]["article"]["kind"] == "条"

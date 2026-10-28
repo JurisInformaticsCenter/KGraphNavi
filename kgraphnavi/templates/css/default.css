@@ -929,3 +929,59 @@ body.kg-busy .kg-tab-content {
     flex-basis: auto;
   }
 }
+
+/* ガジェットの variants の切り替え（条／法令など。2026.10.28） */
+.kg-variants {
+  display: inline-flex;
+  margin: 2px 0 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  overflow: hidden;
+  font-size: 13px;
+}
+
+.kg-variant {
+  padding: 3px 14px;
+  color: #0369a1;
+  text-decoration: none;
+  background: #fff;
+}
+
+.kg-variant + .kg-variant {
+  border-left: 1px solid #cbd5e1;
+}
+
+a.kg-variant:hover {
+  background: #f1f5f9;
+}
+
+.kg-variant.current {
+  background: #0369a1;
+  color: #fff;
+  font-weight: 600;
+}
+
+.kg-graph-min {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: #334155;
+}
+
+.kg-graph-min a,
+.kg-graph-min strong {
+  display: inline-block;
+  min-width: 1.6em;
+  padding: 0 4px;
+  text-align: center;
+}
+
+.kg-graph-min strong {
+  border-radius: 4px;
+  background: #e0f2fe;
+}
+
+.kg-graph-filter {
+  display: inline-block;
+  margin: 2px 0 6px;
+  font-size: 13px;
+}

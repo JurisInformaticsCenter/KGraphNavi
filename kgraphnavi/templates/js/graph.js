@@ -25,6 +25,11 @@
             { selector: "node.outside", style: {
                 "border-style": "dashed", "border-color": "#6b7280", "border-width": 1.5, "background-opacity": 0.6
             } },
+            // 2段に並べるとき、上の段（参照される側）の名前は斜めに上へ
+            { selector: "node.top.tilted", style: {
+                "text-valign": "top", "text-halign": "right", "text-margin-y": -4, "text-margin-x": -6,
+                "text-rotation": -0.6, "font-size": 11, "text-background-opacity": 0
+            } },
             { selector: "node.focus", style: { "border-color": "#0f172a", "border-width": 3, "z-index": 20 } },
             { selector: "edge", style: {
                 "width": "mapData(weight, 1, 5, 1, 4)", "line-color": "#cbd5e1", "curve-style": "straight",
@@ -45,15 +50,18 @@
             { selector: "node.axis", style: {
                 "width": 1, "height": 1, "background-opacity": 0, "border-width": 0, "label": "data(label)",
                 "font-size": 12, "color": "#64748b", "text-valign": "center", "text-background-opacity": 0,
-                "events": "no", "opacity": 1
+                "events": "no", "opacity": 1, "display": "none"
             } }
         ];
     }
 
+    // positions: サーバで計算した配置ごとの位置 {配置: {ノード: {x, y}}}（年で並べる・2段）
     function layoutOptions(name, positions) {
         switch (name) {
         case "timeline":
-            return { name: "preset", positions: function (node) { return positions[node.id()]; }, fit: true, padding: 30 };
+        case "bipartite":
+            return { name: "preset", fit: true, padding: 40,
+                     positions: function (node) { return (positions[name] || {})[node.id()] || node.position(); } };
         case "circle":
             return { name: "circle", fit: true, padding: 30, sort: function (a, b) { return b.data("size") - a.data("size"); } };
         case "grid":
@@ -98,10 +106,14 @@
         if (directed) {
             fact("参照されている", data.indegree + " 件");
             fact("参照している", data.outdegree + " 件");
-        } else {
-            fact("つながり", (data.indegree + data.outdegree) + " 件");
         }
         panel.appendChild(facts);
+        if (data.filter) {
+            // その値で絞り込んだコレクションへ（コレクションのページでは今の条件に加える）
+            var filter = element("a", "kg-graph-filter", "この" + data.kind + "で絞り込む");
+            filter.href = data.filter;
+            panel.appendChild(filter);
+        }
 
         function neighborList(label, nodes) {
             if (!nodes.length) { return; }
@@ -122,7 +134,12 @@
             neighborList("参照している", node.outgoers("node").toArray());
             neighborList("参照されている", node.incomers("node").toArray());
         } else {
-            neighborList("つながっている", node.neighborhood("node").toArray());
+            // 向きのない辺（判例と条など）は、つながるノードを種類ごとに
+            var byKind = {};
+            node.neighborhood("node").forEach(function (n) {
+                (byKind[n.data("kind")] = byKind[n.data("kind")] || []).push(n);
+            });
+            Object.keys(byKind).forEach(function (kind) { neighborList(kind, byKind[kind]); });
         }
         if (data.href) {
             panel.appendChild(element("p", "kg-graph-hint", "ダブルクリックでこのページを開きます"));
@@ -139,10 +156,7 @@
             return;
         }
         var payload = JSON.parse(source.textContent);
-        var positions = {};
-        payload.elements.forEach(function (e) {
-            if (e.position) { positions[e.data.id] = e.position; }
-        });
+        var positions = payload.positions || {};
         var cy = window.cytoscape({
             container: container,
             elements: payload.elements,
@@ -154,10 +168,12 @@
         });
         function setArcs(layout) {
             if (layout === "timeline") { cy.edges().addClass("arc"); } else { cy.edges().removeClass("arc"); }
+            if (layout === "bipartite") { cy.nodes(".top").addClass("tilted"); } else { cy.nodes(".top").removeClass("tilted"); }
             // 年の目盛りは、年で並べるときだけ出す
             cy.nodes(".axis").style("display", layout === "timeline" ? "element" : "none");
         }
         setArcs(payload.layout);
+        cy.fit(cy.elements(":visible"), 40);
         graphs.push(cy);
         container.kgCy = cy;
         var wrap = container.closest(".kg-graph-wrap");

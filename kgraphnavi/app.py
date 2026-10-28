@@ -196,12 +196,41 @@ class Rows(list):
     server_paged = False   # KGraphNavi 側でページ送りした（コレクションのページで page_size があるとき）
 
 
+# ガジェットの variants を選ぶ URL パラメータ（v.<ガジェット名>=<variant の name>）
+VARIANT_PREFIX = "v."
+VARIANT_KEYS = {"name", "label", "get", "show"}
+
+
+def parse_variants(name, config):
+    """gadget の variants を検証して返す（[{name, label, get, show}]）"""
+    variants = config.get("variants")
+    if variants is None:
+        return []
+    if not isinstance(variants, list) or not variants:
+        raise ConfigError(f"gadget({name})のvariantsは [{{name:, label:, get:, show:}}] のリストです")
+    seen = set()
+    for variant in variants:
+        if not isinstance(variant, dict) or not re.fullmatch(r"[\w-]+", str(variant.get("name", ""))):
+            raise ConfigError(f"gadget({name})のvariantsの各項目には name（英数字）が必要です: {variant!r}")
+        unknown = set(variant) - VARIANT_KEYS
+        if unknown:
+            raise ConfigError(f"gadget({name})のvariants({variant['name']})に未知のキー: {sorted(unknown)}")
+        if variant["name"] in seen:
+            raise ConfigError(f"gadget({name})のvariantsの name が重なっています: {variant['name']}")
+        seen.add(variant["name"])
+        for part in ("get", "show"):
+            if part in variant and not isinstance(variant[part], dict):
+                raise ConfigError(f"gadget({name})のvariants({variant['name']})の{part}は辞書です")
+    return variants
+
+
 class GadgetNotFound(Exception):
     pass
 
 class Gadget:
     """Gadget"""
-    __slots__ = ("extract_method", "show_method", "height", "sparql_client", "title", "collection_config", "compare_config")
+    __slots__ = ("extract_method", "show_method", "height", "sparql_client", "title", "collection_config", "compare_config",
+                 "variants")
     EXTRACTORS = {
         "sparql": "extract_sparql",
         "facet": "extract_facet",
@@ -218,7 +247,7 @@ class Gadget:
     def __repr__(self):
         return f'Config(extract={self.extract_method!r}, show={self.show_method!r})'
 
-    def __init__(self, config_get, config_show, height, title=None, collection=None, compare=None):
+    def __init__(self, config_get, config_show, height, title=None, collection=None, compare=None, variants=None):
         """Gadgetの生成。get内容の辞書と、show内容の辞書、gadgetの高さ、見出しを受け取る
 
         collection: 一覧の列（var）の値をコレクションとして表示するボタンの設定
@@ -233,6 +262,31 @@ class Gadget:
         self.collection_config = collection
         # 一覧（var の列のリソース）と表示中のリソースを並べて比べるボタン（/compare?from=。2026.10.26）
         self.compare_config = compare
+        # 画面で切り替える問い合わせ・表示（[{name, label, get, show}]。URL v.<ガジェット名>=<name>。2026.10.28）
+        self.variants = variants or []
+
+    def with_variant(self, gadget_name, params):
+        """variants があれば、URL（v.<ガジェット名>）で選んだもの（既定は最初）の get / show を重ねたガジェットと、
+        切り替えのリンクの HTML を返す。なければ (self, "")"""
+        if not self.variants:
+            return self, ""
+        key = VARIANT_PREFIX + gadget_name
+        chosen = (params or {}).get(key)
+        current = next((v for v in self.variants if v["name"] == chosen), self.variants[0])
+        gadget = Gadget({**self.extract_method, **(current.get("get") or {})},
+                        {**self.show_method, **(current.get("show") or {})},
+                        self.height, self.title, self.collection_config, self.compare_config)
+        gadget.sparql_client = self.sparql_client
+        links = []
+        for variant in self.variants:
+            label = html_escape(str(variant.get("label") or variant["name"]))
+            if variant is current:
+                links.append(f'<span class="kg-variant current">{label}</span>')
+            else:
+                # 切り替えると数の条件（graph.min など）の意味が変わるので外す
+                url = make_url(params or {}, drop={key, "graph.min"}, add=[(key, variant["name"])])
+                links.append(f'<a class="kg-variant" href="{html_escape(url)}">{label}</a>')
+        return gadget, f'<div class="kg-variants">{"".join(links)}</div>'
 
     @property
     def is_facet(self):
@@ -1059,6 +1113,8 @@ class Application:
         """
         if params is None:
             params = {}
+        # variants（条／法令など）を URL で選ぶ
+        gadget, variant_bar = gadget.with_variant(name, params) if getattr(gadget, "variants", None) else (gadget, "")
         # データ取得
         logger.info(
             "make_gadget: name=%r gadget=%r collection=%r",
@@ -1090,7 +1146,7 @@ class Application:
             content["rows_truncated"] = rows_truncated
         # 表示（コレクションのページで要素 ?entity の一覧なら、選んで比べるチェックボックスの列を付ける。2026.10.26）
         shown_gadget, content = with_select_column(gadget, content) if collection is not None else (gadget, content)
-        gadget_body = shown_gadget.show(content)
+        gadget_body = variant_bar + shown_gadget.show(content)
         if getattr(content, "truncated", False) or (isinstance(content, dict) and content.get("rows_truncated")):
             gadget_body += (
                 '<p class="gadget-notice">表示件数の上限'
@@ -1763,6 +1819,7 @@ def setconfig(config, base_dir=None):
         "height",
         "get",
         "show",
+        "variants",   # 画面で切り替える問い合わせ・表示 [{name, label, get, show}]（2026.10.28）
     }
     
     configs = load_imports(config)
@@ -1913,6 +1970,17 @@ def setconfig(config, base_dir=None):
                 if not isinstance(gadget_compare, dict) or not re.fullmatch(
                         r"[A-Za-z_][A-Za-z0-9_]*", str(gadget_compare.get("var", ""))):
                     raise ConfigError(f"gadget({name})のcompareには var（変数名）が必要です")
+            variants = parse_variants(name, config)
+            for show in [config["show"]] + [{**config["show"], **(v.get("show") or {})} for v in variants]:
+                if isinstance(show, dict) and show.get("type") == "graph":
+                    validate_graph_show(name, show)
+            max_rows_conf = (config["get"] or {}).get("max_rows") if isinstance(config["get"], dict) else None
+            if max_rows_conf is not None:
+                try:
+                    if int(max_rows_conf) <= 0:
+                        raise ValueError
+                except (TypeError, ValueError) as e:
+                    raise ConfigError(f"gadget({name})のget.max_rowsは正の整数です") from e
             gadgetset[name] = Gadget(
                 config_get=config["get"],
                 config_show=config["show"],
@@ -1920,6 +1988,7 @@ def setconfig(config, base_dir=None):
                 title=config.get("title"),
                 collection=gadget_collection,
                 compare=gadget_compare,
+                variants=variants,
             )
         else: # 未知のdef
             raise ConfigError(f"未知のdef: {deftype!r}(page または gadget を指定してください)")

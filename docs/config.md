@@ -142,6 +142,26 @@ KGraphNavi の設定ファイルに書けるすべての項目の一覧です。
 | `title` | | ガジェット名（ファセットは `get.label`） | 見出し |
 | `height` | | `500` | 表の高さ（px）。ファセットでは候補のリストの最大の高さ |
 | `collection` | | | 一覧をコレクションとして開くボタン（下記）。`get.type: sparql` のときだけ使える |
+| `variants` | | | 画面で切り替える問い合わせ・表示（下記） |
+
+### `variants`（画面で問い合わせ・表示を切り替える。2026.10.28）
+
+ガジェットの上に切り替えのボタンを出し、選んだものの `get` / `show` を元の設定に重ねて表示します（項目ごとに置き換え）。既定は最初のもの。選んだものは URL の `v.<ガジェット名>=<name>` に残ります。
+
+```yaml
+variants:
+    - name: clause          # 英数字。URL に使う
+      label: 条             # ボタンの文字
+    - name: law
+      label: 法令
+      get:
+          src: |            # この variant の問い合わせ
+              SELECT ...
+      show:
+          nodes: {...}      # show.nodes を置き換える
+```
+
+切り替えると、ネットワーク図の数の条件（`graph.min`）は外します。
 
 ### `collection`（一覧をコレクションとして開くボタン）
 
@@ -394,9 +414,9 @@ show:
 | 項目 | 内容 |
 | --- | --- |
 | `edges` | 辺のリスト（必須）。`from` / `to` に変数名。`directed: false` で向きのない辺（既定は向きあり）。`label` に辺の名前の変数 |
-| `nodes` | 変数ごとのノードの設定。`label`（名前の変数。なければ IRI の末尾）、`kind`（種類の名前。色分けと凡例。既定は変数名）、`x`（年で並べるときの横軸の値の変数。`1948-03-30` のような日付は先頭の年を使う）、`in_collection`（下） |
+| `nodes` | 変数ごとのノードの設定。`label`（名前の変数。なければ IRI の末尾）、`kind`（種類の名前。色分けと凡例。既定は変数名）、`x`（年で並べるときの横軸の値の変数。`1948-03-30` のような日付は先頭の年を使う）、`in_collection`（下）、`min_degree`（下）、`collection`（下） |
 | `outside` | コレクション外のノード: `hide`（既定。出さない）/ `show`（灰色・点線で出す）。画面の「コレクション外の参照先も表示する」で切り替える（URL `graph.outside=show`） |
-| `layout` | 配置: `timeline`（`x` の値で横に並べる。辺は弧）/ `force`（力学モデル）/ `circle` / `grid`。既定は `x` があれば `timeline`、なければ `force`。画面でも切り替えられる |
+| `layout` | 配置: `timeline`（`x` の値で横に並べる。辺は弧）/ `bipartite`（2段。下の段にコレクションの要素、上の段にそれ以外）/ `force`（力学モデル）/ `circle` / `grid`。既定は `x` があれば `timeline`、なければ `force`。画面でも切り替えられる |
 | `max_nodes` | ノードの上限（既定 500）。超えたらつながりの多いものから残し、その旨を表示する |
 | `size` | ノードの大きさ: `indegree`（向きのある辺の既定。参照されている数）/ `outdegree` / `degree`（向きのない辺の既定）/ `none` |
 | `isolated` | 辺のないノード: `hide`（既定）/ `show` |
@@ -408,7 +428,46 @@ show:
 - `check` … コレクションの要素かどうかを問い合わせて調べる（参照先の判例など）。要素でなければ「コレクション外」
 - `false` … コレクションの要素ではないノード（法令の条など）。`outside` の対象にしない（`entity` 以外の既定）
 
-画面では、ノードをクリックすると右の欄に詳しい情報（参照している・されている判例の一覧）を出し、つながるノードを強調します。ダブルクリックでそのリソースのページを開きます。
+`nodes` の `min_degree`: これより少ない数のノードとしかつながらないノードは出しません（例: 1件の判例からしか参照されない条）。画面の「つながりが 1 2 3 … 以上」で変えられます（URL `graph.min`）。その結果つながりのなくなったノードも出しません。
+
+`nodes` の `collection`: `{facet: <ファセットの名前>}` と書くと、ノードの右の欄に「この○○で絞り込む」のリンクを出します。コレクションのページでは今の条件にそのノードの値の条件を加え、同じタブを開きます。コレクションでないページでは `class:`（または `view:`）のコレクションへ移ります。
+
+二部グラフ（判例と、判断の中で参照している法令の条）の例:
+
+```yaml
+- def: gadget
+  name: RefLawNetwork
+  title: 判例と参照法令
+  get:
+    type: sparql
+    max_rows: 50000
+    src: |
+      SELECT ?entity ?label ?year ?article ?articlelabel WHERE {
+        $collection
+        ?entity caselawp:reflawCore ?article .
+        ?article a lawo:Clause .
+        FILTER(!CONTAINS(STRAFTER(STR(?article), "_"), "_"))   # 条の単位だけ（項を除く）
+        OPTIONAL { ?entity rdfs:label ?label }
+        OPTIONAL { ?entity caselawp:year ?year }
+        OPTIONAL { ?article rdfs:label ?articlelabel }
+      }
+  show:
+    type: graph
+    edges:
+      - {from: entity, to: article, directed: false}
+    nodes:
+      entity: {label: label, kind: 判例, x: year}
+      article: {label: articlelabel, kind: 条, min_degree: 2, collection: {facet: reflaw_core_clause}}
+    layout: bipartite
+  variants:                 # 「条／法令」の切り替え（上の variants）
+    - {name: clause, label: 条}
+    - name: law
+      label: 法令
+      get: {src: "..."}
+      show: {nodes: {...}}
+```
+
+画面では、ノードをクリックすると右の欄に詳しい情報（参照している・されている判例の一覧、向きのない辺ではつながるノードを種類ごとに）を出し、つながるノードを強調します。ダブルクリックでそのリソースのページを開きます。
 
 ### `rank`
 
