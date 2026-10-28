@@ -225,7 +225,9 @@ JSGRID = """    <link type="text/css" rel="stylesheet" href="https://cdnjs.cloud
     </style>
 """
 
-CYTOSCAPE = """    <script src="https://unpkg.com/cytoscape/dist/cytoscape.min.js"></script>
+# ネットワーク図（show: type: graph）。描画は templates/js/graph.js の kgDrawGraph
+CYTOSCAPE = """    <script src="https://cdn.jsdelivr.net/npm/cytoscape@3/dist/cytoscape.min.js"></script>
+    <script src="/templates/js/graph.js"></script>
 """
 
 GRIDDATA1 = "window.addEventListener('load', (event) => {"

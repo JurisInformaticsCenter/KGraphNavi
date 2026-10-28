@@ -759,3 +759,173 @@ body.kg-busy .kg-tab-content {
 .gadget-error { color: #9a3412; background: #fff7ed; border: 1px solid #fed7aa; padding: 0.6em 0.8em; border-radius: 4px; }
 .gadget-error-detail { color: #555; font-size: 85%; margin: 0.4em 0 1em; }
 .gadget-error-detail pre { white-space: pre-wrap; word-break: break-all; background: #f5f5f5; padding: 0.6em; }
+
+/* ネットワーク図（show: type: graph。templates/js/graph.js） */
+.kg-graph-wrap {
+  margin: 4px 0 12px;
+}
+
+.kg-graph-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: #334155;
+}
+
+.kg-graph-summary {
+  font-weight: 600;
+}
+
+.kg-graph-legend {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.kg-graph-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.kg-graph-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.kg-graph-dot-outside {
+  background: #9ca3af;
+  border: 1px dashed #6b7280;
+}
+
+.kg-graph-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.kg-graph-tools label {
+  margin: 0;
+}
+
+.kg-graph-tools select,
+.kg-graph-tools button {
+  padding: 2px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #fff;
+  font-size: 13px;
+}
+
+.kg-graph-outside {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.kg-graph-body {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.kg-graph {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fcfcfd;
+}
+
+.kg-graph-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #b91c1c;
+  font-size: 14px;
+}
+
+.kg-graph-panel {
+  flex: 0 0 280px;
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 13px;
+}
+
+.kg-graph-panel[hidden] {
+  display: none;
+}
+
+.kg-graph-panel-title {
+  margin: 0 0 8px;
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.kg-graph-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  margin: 0 0 8px;
+}
+
+.kg-graph-facts dt {
+  font-weight: normal;
+  color: #64748b;
+}
+
+.kg-graph-facts dd {
+  margin: 0;
+}
+
+.kg-graph-panel-sub {
+  margin: 10px 0 4px;
+  font-size: 13px;
+  color: #334155;
+}
+
+.kg-graph-neighbors {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.kg-graph-neighbor {
+  display: block;
+  width: 100%;
+  padding: 2px 4px;
+  border: none;
+  background: none;
+  color: #0369a1;
+  text-align: left;
+  cursor: pointer;
+}
+
+.kg-graph-neighbor:hover {
+  background: #f1f5f9;
+}
+
+.kg-graph-more,
+.kg-graph-hint {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 12px;
+}
+
+@media (max-width: 800px) {
+  .kg-graph-body {
+    flex-direction: column;
+  }
+  .kg-graph-panel {
+    flex-basis: auto;
+  }
+}

@@ -2338,6 +2338,11 @@
           lazy: true
           gadget:
             - RankCitedCase
+        # 判例の参照関係のネットワーク図（show: type: graph。2026.10.28）
+        - label: 参照関係
+          lazy: true
+          gadget:
+            - CitationNetwork
         - label: 参照の多い法令の条
           lazy: true
           gadget:
@@ -2346,6 +2351,35 @@
           lazy: true
           gadget:
             - RankRefLawCore
+-   def: gadget
+    name: CitationNetwork
+    # コレクションの判例の参照関係(caselawp:citedcaselaw: 本文で参照している事件をデータ中の判例に照合したもの)。
+    # 参照先がコレクション外の判例は既定では出さない（画面で「コレクション外の参照先も表示する」）。2026.10.28
+    title: 判例の参照関係
+    get:
+        type: sparql
+        max_rows: 50000
+        src: |
+            SELECT ?entity ?label ?year ?cited ?citedlabel ?citedyear
+            WHERE {
+                $collection
+                ?entity caselawp:citedcaselaw ?cited .
+                OPTIONAL { ?entity rdfs:label ?label }
+                OPTIONAL { ?entity caselawp:year ?year }
+                OPTIONAL { ?cited rdfs:label ?citedlabel }
+                OPTIONAL { ?cited caselawp:year ?citedyear }
+            }
+    show:
+        type: graph
+        edges:
+            - {from: entity, to: cited}
+        nodes:
+            entity: {label: label, kind: 判例, x: year}
+            cited: {label: citedlabel, kind: 判例, x: citedyear, in_collection: check}
+        outside: hide
+        layout: timeline
+        max_nodes: 500
+        height: 640
 -   def: gadget
     name: CaseLawDocumentList
     title: 判決文書

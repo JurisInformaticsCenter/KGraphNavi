@@ -27,7 +27,8 @@ import csv
 import yaml
 from flask import Flask, render_template
 from .render_utils import show_vertical_table, show_horizontal_table, show_facet, get_localname
-from .render_utils import show_chart, show_network, pairs2adjacent, show_adjacentnetwork
+from .render_utils import show_chart
+from .graph import build_graph, render_graph, validate_graph_show
 from .sparql import SPARQL, STANDARD_PREFIXES
 from .collection import AnyCollection, TextCondition
 from .saved import SavedCollectionStore, DEFAULT_SAVE_MAX
@@ -205,16 +206,13 @@ class Gadget:
         "sparql": "extract_sparql",
         "facet": "extract_facet",
         "list": "extract_list",
-        "csv2adjacent": "extract_csv2adjacent",
         "python": "extract_python",
         "csv": "extract_csv",
         "dbpedia": "extract_dbpedia",
         "rank": "extract_rank",         # 順位表（コレクションの要素を値ごとに数える。2026.10.20）
     }
     SHOWERS = {
-        "network": show_network,
         "chart": show_chart,
-        "adjacentnetwork": show_adjacentnetwork,
     }
 
     def __repr__(self):
@@ -338,6 +336,9 @@ class Gadget:
             offset = (page_number(params) - 1) * self.page_size
         query = self._connect_collection(query, collection, limit=limit, offset=offset)
         max_rows = getattr(application, "max_rows", DEFAULT_MAX_ROWS) if application else DEFAULT_MAX_ROWS
+        if self.extract_method.get("max_rows"):
+            # ガジェットごとの上限（ネットワーク図の辺など、多くの行を取るもの。2026.10.28）
+            max_rows = int(self.extract_method["max_rows"])
         query = limit_rows(query, max_rows)
         logger.info(
             "extract_sparql: final query=\n%s",
@@ -358,14 +359,6 @@ class Gadget:
         contents = [[val.strip() for val in line.split(',')] for line in lines]
         header = [name.strip() for name in self.extract_method['header'].split(',')]
         return make_sparql_result_from_list(contents, header)
-
-    def extract_csv2adjacent(self, uri, application, params=None, collection=None):
-        name = self.extract_method['file']
-        direction = self.extract_method.get('direction')
-        edge = self.extract_method['edge'].split()
-        adjacent = application.get_adjacent_graph(name, edge, direction)
-        target = self.sparql_client.rdfobject(uri, self.extract_method['target'])
-        return (target, adjacent)
 
     def extract_python(self, uri, application, params=None, collection=None):
         extract_function = self.extract_method['src']
@@ -633,6 +626,10 @@ class Gadget:
                                                           else self.show_method.get("label", "件数")),
                                                 "height": self.show_method.get("chart_height", 320)})
             return render_rank(content, self.show_method, chart_html)
+        if show_type == "graph":
+            # ネットワーク図（content は make_gadget で build_graph したもの。2026.10.28）
+            return render_graph(content, content.get("params"),
+                                height=self.show_method.get("height") or self.height)
         if show_type == "facet":
             if isinstance(content, dict) and content.get("kind") == "range":
                 return render_range_facet(content)
@@ -944,14 +941,14 @@ def probe_bif_contains(sparql_client, label_predicate="rdfs:label"):
 
 # 設定の検証で使う、対応しているget/showの種類
 SUPPORTED_GET_TYPES = set(Gadget.EXTRACTORS)
-SUPPORTED_SHOW_TYPES = {"vtable", "htable", "facet", "rank"} | set(Gadget.SHOWERS)
+SUPPORTED_SHOW_TYPES = {"vtable", "htable", "facet", "rank", "graph"} | set(Gadget.SHOWERS)
 
 TOPIC_FORM = '<form action="/topic" method="GET"><div class="search_wrap"><input name="q" type="search" placeholder="トピックのキーワード" /><button type="submit">トピック</button></div></form>'
 RETRIEVE_FORM = '<form action="/search" method="GET"><div class="search_wrap"><input name="q" type="search" placeholder="検索キーワード" /><button type="submit">検索</button><div class="search-modes"><label><input type="radio" name="mode" value="partial" checked>部分</label><label><input type="radio" name="mode" value="perfect">完全</label></div></div></form>'
 
 class Application:
     """Application"""
-    __slots__ = ("pages", "gadgetset", "title", "describe", "query_samples", "resource_samples", "collection_samples", "adjacent", "priority_list", "focus", "navi", "sparql_client", "data_dir", "data_dirs", "static_dirs", "max_rows", "prefixes", "class_page_cache", "text_search", "text_search_cache", "label_predicate", "saved_store", "saved_max", "topic_config", "compare_views")
+    __slots__ = ("pages", "gadgetset", "title", "describe", "query_samples", "resource_samples", "collection_samples", "priority_list", "focus", "navi", "sparql_client", "data_dir", "data_dirs", "static_dirs", "max_rows", "prefixes", "class_page_cache", "text_search", "text_search_cache", "label_predicate", "saved_store", "saved_max", "topic_config", "compare_views")
     def __repr__(self):
         return f'Application={self.pages!r}, {self.gadgetset}'
 
@@ -964,7 +961,6 @@ class Application:
         self.resource_samples = resource_samples
         self.collection_samples = collection_samples
         self.priority_list = priority_list
-        self.adjacent = dict()
         self.focus = None
         self.navi = (f'<nav class="navbar"><ul><li class="nav_left"><a href="{frontend_base_url}">{self.title}</a></li>'
                      '<li class="nav_left"><a href="/collections">保存したコレクション</a></li>'
@@ -1086,10 +1082,16 @@ class Application:
             type(content).__name__,
             len(content) if content else 0,
         )
+        if (getattr(gadget, "show_method", None) or {}).get("type") == "graph":
+            # ネットワーク図: 行を辺として読み、ノード・辺にする（コレクション外のノードを調べる。2026.10.28）
+            rows_truncated = getattr(content, "truncated", False)
+            content = build_graph(content, gadget.show_method, collection=collection, params=params)
+            content["params"] = params
+            content["rows_truncated"] = rows_truncated
         # 表示（コレクションのページで要素 ?entity の一覧なら、選んで比べるチェックボックスの列を付ける。2026.10.26）
         shown_gadget, content = with_select_column(gadget, content) if collection is not None else (gadget, content)
         gadget_body = shown_gadget.show(content)
-        if getattr(content, "truncated", False):
+        if getattr(content, "truncated", False) or (isinstance(content, dict) and content.get("rows_truncated")):
             gadget_body += (
                 '<p class="gadget-notice">表示件数の上限'
                 f'（{getattr(self, "max_rows", DEFAULT_MAX_ROWS):,} 行）に達したため、'
@@ -1575,18 +1577,7 @@ class Application:
             raise GadgetError(f"facet({name})にpredicateがありません")
         return facet
 
-    def get_adjacent_graph(self, name, edge, direction):
-        if name not in self.adjacent:
-            self.adjacent[name] = pairs2adjacent(
-                self.import_files[name],
-                edge[0],
-                edge[1],
-                direction,
-            )
-        return self.adjacent[name]
 
-
-    
 def error(message_type, message):
     return render_template('error.html', message_type=message_type, message=message)
 
@@ -1679,6 +1670,12 @@ def setconfig(config, base_dir=None):
                 src = get_config.get("src")
                 if not src or not isinstance(src, str):
                     errors.append("get.type=sparql の場合、get.srcが必要です")
+                if "max_rows" in get_config:
+                    try:
+                        if int(get_config["max_rows"]) <= 0:
+                            raise ValueError
+                    except (TypeError, ValueError):
+                        errors.append("get.max_rowsは正の整数で指定してください")
             if get_type == "rank":
                 if not get_config.get("facet") and not get_config.get("predicate"):
                     errors.append("get.type=rank の場合、get.facet か get.predicate が必要です")
@@ -1699,6 +1696,11 @@ def setconfig(config, base_dir=None):
                 errors.append("show.typeがありません")
             elif show_type not in SUPPORTED_SHOW_TYPES:
                 errors.append(f"未対応のshow.typeです: {show_type!r}")
+            if show_type == "graph":
+                try:
+                    validate_graph_show(config.get("name"), show_config)
+                except ConfigError as e:
+                    errors.append(str(e))
             if show_type == "htable":
                 columns = show_config.get("columns")
                 if columns is None:

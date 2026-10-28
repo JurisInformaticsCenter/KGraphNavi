@@ -187,6 +187,7 @@ KGraphNavi の設定ファイルに書けるすべての項目の一覧です。
 | --- | --- | --- |
 | `src` | ○ | SPARQL の SELECT（[8](#8-sparql-の書き方)） |
 | `page_size` | | コレクションの要素をこの件数ずつに区切ってページ送りを付ける（コレクションのページだけ。表自身のページ送りは使わない） |
+| `max_rows` | | このガジェットで取得する行数の上限（既定はアプリケーションの `max_rows`）。ネットワーク図の辺など、多くの行を取るガジェットに使う |
 | `values` | | 取得した最初の行に値を加える `{変数名: "count(プロパティ)" または "list(プロパティ)"}`。表示中のリソースからそのプロパティの値の数・値のリストを求める |
 
 `src` の末尾に `LIMIT` / `OFFSET` / `VALUES` がなければ、`max_rows` + 1 行に制限して実行します。
@@ -282,6 +283,7 @@ get:
 | `htable` | 横の表。1行を1行として表示する |
 | `chart` | 棒グラフ・円グラフ（Chart.js） |
 | `facet` | ファセット（`get.type: facet` と組み合わせる） |
+| `graph` | ネットワーク図（Cytoscape.js）。SPARQL の結果の行を辺として描く |
 
 ### `vtable`
 
@@ -355,6 +357,58 @@ show:
 ```
 
 `chart` には Chart.js のグラフの種類を書きます（`bar` と `pie` を想定しています）。
+
+### `graph`（ネットワーク図。2026.10.28）
+
+`get.type: sparql` の結果の行を辺として読み、ノードと辺の図を描きます。コレクションのページでは `$collection` で、絞り込んだコレクションの図になります。
+
+```yaml
+- def: gadget
+  name: CitationNetwork
+  title: 判例の参照関係
+  get:
+    type: sparql
+    max_rows: 50000               # 辺の数だけ行を取るので、上限を上げておく
+    src: |
+      SELECT ?entity ?label ?year ?cited ?citedlabel ?citedyear WHERE {
+        $collection
+        ?entity caselawp:citedcaselaw ?cited .
+        OPTIONAL { ?entity rdfs:label ?label }
+        OPTIONAL { ?entity caselawp:year ?year }
+        OPTIONAL { ?cited rdfs:label ?citedlabel }
+        OPTIONAL { ?cited caselawp:year ?citedyear }
+      }
+  show:
+    type: graph
+    edges:
+      - {from: entity, to: cited}           # entity の値から cited の値への辺
+    nodes:
+      entity: {label: label, kind: 判例, x: year}
+      cited:  {label: citedlabel, kind: 判例, x: citedyear, in_collection: check}
+    outside: hide
+    layout: timeline
+    max_nodes: 500
+    height: 640
+```
+
+| 項目 | 内容 |
+| --- | --- |
+| `edges` | 辺のリスト（必須）。`from` / `to` に変数名。`directed: false` で向きのない辺（既定は向きあり）。`label` に辺の名前の変数 |
+| `nodes` | 変数ごとのノードの設定。`label`（名前の変数。なければ IRI の末尾）、`kind`（種類の名前。色分けと凡例。既定は変数名）、`x`（年で並べるときの横軸の値の変数。`1948-03-30` のような日付は先頭の年を使う）、`in_collection`（下） |
+| `outside` | コレクション外のノード: `hide`（既定。出さない）/ `show`（灰色・点線で出す）。画面の「コレクション外の参照先も表示する」で切り替える（URL `graph.outside=show`） |
+| `layout` | 配置: `timeline`（`x` の値で横に並べる。辺は弧）/ `force`（力学モデル）/ `circle` / `grid`。既定は `x` があれば `timeline`、なければ `force`。画面でも切り替えられる |
+| `max_nodes` | ノードの上限（既定 500）。超えたらつながりの多いものから残し、その旨を表示する |
+| `size` | ノードの大きさ: `indegree`（向きのある辺の既定。参照されている数）/ `outdegree` / `degree`（向きのない辺の既定）/ `none` |
+| `isolated` | 辺のないノード: `hide`（既定）/ `show` |
+| `height` | 図の高さ（px。既定はガジェットの `height`、なければ 600） |
+
+`nodes` の `in_collection`:
+
+- `true` … コレクションの要素（変数 `entity` は既定で `true`）
+- `check` … コレクションの要素かどうかを問い合わせて調べる（参照先の判例など）。要素でなければ「コレクション外」
+- `false` … コレクションの要素ではないノード（法令の条など）。`outside` の対象にしない（`entity` 以外の既定）
+
+画面では、ノードをクリックすると右の欄に詳しい情報（参照している・されている判例の一覧）を出し、つながるノードを強調します。ダブルクリックでそのリソースのページを開きます。
 
 ### `rank`
 
@@ -487,7 +541,6 @@ LIMIT 12
 | 機能 | 状況 |
 | --- | --- |
 | ガジェットのパス指定 `Gadget(プロパティ)`（表示中のリソースからプロパティをたどった先でガジェットを実行する） | ページの検証で「ガジェットが定義されていない」エラーになる |
-| `show.type: network` / `adjacentnetwork`（Cytoscape.js のネットワーク表示） | 表示の呼び出しで引数が足りず、エラーになる |
-| `get.type: csv2adjacent` | 読み込む CSV（`import_files`）を設定する方法がない |
+| `show.type: network` / `adjacentnetwork`、`get.type: csv2adjacent` | 廃止。ネットワーク図は `show.type: graph` を使う |
 | `get.type: python` / `csv` | 未実装（エラーになる） |
 | `filter`、`statistics` のページ | 廃止。コレクションとファセットを使う |

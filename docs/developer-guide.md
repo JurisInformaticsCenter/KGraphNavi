@@ -40,7 +40,7 @@ kgraphnavi/
 ├── terms.py         値の検証と SPARQL の項への変換
 ├── render_utils.py  表のセル、横・縦の表、行のまとめ（group_by）、階層（tree）、グラフ
 ├── makehtml.py      ページ全体の HTML、jsGrid の表の JavaScript
-├── cytoscape.py     ネットワーク表示の JavaScript（現在は使われていない）
+├── graph.py         ネットワーク図（show: type: graph）。行→ノード・辺、年で並べる配置
 ├── errors.py        例外クラス
 ├── misc.py          補助関数
 └── templates/       HTML テンプレート、CSS、JavaScript
@@ -213,7 +213,5 @@ pytest
 | 問題 | 場所 |
 | --- | --- |
 | ガジェットのパス指定 `Gadget(プロパティ)` が、ページの検証（`validate_pages`）で未定義のガジェットとして拒否される。`make_gadget()` には `move_focus()` で対応する処理がある | `app.py` `setconfig.validate_pages` |
-| `show.type: network` / `adjacentnetwork` は、`Gadget.show()` が表示関数に `show_method` と JavaScript のファイル名を渡していないため動かない | `app.py` `Gadget.show`、`render_utils.show_network` |
-| `get.type: csv2adjacent` が使う `Application.import_files` を設定する処理がない | `app.py` |
 | `setconfig()` 内の `validate_gadget_config()` は定義されているが呼ばれていない | `app.py` |
 | `get.values` に未知の関数を書くと、例外にならず `error()`（エラー画面の HTML を返す関数）を呼ぶだけで処理が続く | `app.py` `Gadget._apply_values` |

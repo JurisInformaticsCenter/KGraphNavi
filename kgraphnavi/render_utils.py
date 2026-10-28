@@ -23,7 +23,6 @@ from urllib.parse import quote, urlencode
 from urllib.parse import unquote
 from flask import render_template # show_chart が使う
 from .makehtml import make_table, make_kvtable
-from .cytoscape import make_graphjs
 logger = logging.getLogger(__name__)
 
 # --------------------------------------------------
@@ -651,69 +650,3 @@ def show_chart(pairs, show_method):
         "</script>"
     )
 
-# --------------------------------------------------
-# Network rendering
-# --------------------------------------------------
-
-def show_network(data, show_method, jsname):
-    def split_strip(delim, s0):
-        return [s.strip() for s in s0.split(delim)]
-
-    def get_edge(record, from_node, to_node):
-        if (from_node in record) and (to_node in record):
-            return [record[from_node]['value'], record[to_node]['value']]
-        return []
-    def get_all_edges(record, edge_schema):
-        edges = []
-        for from_node, to_node in edge_schema:
-            if pair := get_edge(record, from_node, to_node):
-                edges.append(pair)
-        return edges
-
-    edge_schema = [split_strip(',', pair_str) for pair_str in show_method['edge']]
-    all_edges = []
-    for record in data:
-        edges = get_all_edges(record, edge_schema)
-        all_edges += edges
-    nodedict = defaultdict(lambda: set())
-    for record in data:
-        for key in record.keys():
-            nodedict[key].add(record[key]['value'])
-    make_graphjs(jsname, all_edges, nodedict)
-    return f'<div id="cy"></div> <script src="./{jsname}"></script>'
-
-def pairs2adjacent(json, keyname, targetname, direction=None):
-    """jsonのkeyからtargetへの集合のdictを作成する"""
-    adj_dict = defaultdict(list)
-    for row in json:
-        fromnode = row[keyname]
-        tonode = row[targetname]
-        adj_dict[fromnode].append(tonode)
-        if direction is None:
-            adj_dict[tonode].append(fromnode)
-    return adj_dict
-
-def concatenated_graph(seed_node, adj_dict):
-    """seed からedgesでたどり着けるグラフ"""
-    processed = []
-    queue = [seed_node, ]
-    while queue:
-        seed_node = queue.pop()
-        new_nodes = adj_dict[seed_node]
-        processed.append(seed_node)
-        for seednode in new_nodes:
-            if seednode in processed:
-                pass
-            else:
-                queue.append(seednode)
-    return processed
-
-def show_adjacentnetwork(data, jsname):
-    target, adj_dict = data
-    all_nodes = concatenated_graph(target, adj_dict)
-    all_edges = []
-    for node in all_nodes:
-        for to_node in adj_dict[node]:
-            all_edges.append((node, to_node))
-    make_graphjs(jsname, all_edges, {'node': all_nodes, 'start': [target,]}, edge_styles='triangle')
-    return f'<div id="cy"></div> <script src="./{jsname}"></script>'
