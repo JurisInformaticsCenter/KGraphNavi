@@ -36,6 +36,13 @@
                   collection: {facet: reflaw_core_clause}}   # ノードから、その値で絞り込んだコレクションへ
       layout: bipartite
 
+片側への射影（同じ判例で一緒に参照される条どうし／同じ条を参照する判例どうし）::
+
+    show:
+      ...（二部グラフと同じ edges / nodes）
+      project: {keep: article, via: entity, min_weight: 2}   # article どうしを、共通の entity の数を重みとして結ぶ
+      layout: force
+
 nodes の min_degree: これより少ない数のノードとしかつながらないノードは出さない（画面で変えられる。URL graph.min）
 nodes の in_collection:
     true   … いつもコレクションの要素（変数 entity は既定で true）
@@ -61,14 +68,22 @@ MIN_PARAM = "graph.min"
 MIN_CHOICES = (1, 2, 3, 5, 10, 20, 50)
 LAYOUTS = ("timeline", "bipartite", "force", "circle", "grid")
 LAYOUT_LABELS = {"timeline": "年で並べる", "bipartite": "2段に並べる", "force": "力学モデル", "circle": "円", "grid": "格子"}
-SIZE_MODES = ("indegree", "outdegree", "degree", "none")
+SIZE_MODES = ("indegree", "outdegree", "degree", "strength", "none")
+# 射影の辺の重み（一緒に参照された判例の数など）の下限を画面で変える URL パラメータと、選べる値
+WEIGHT_PARAM = "graph.w"
+WEIGHT_CHOICES = (1, 2, 3, 5, 10, 20)
+DEFAULT_MAX_SHARED = 200
+# 指標の表に出す数
+METRICS_ROWS = 50
 DEFAULT_MAX_NODES = 500
 # 名前を常に出すノードの数（大きい順）。他はマウスを乗せる・選ぶと出す
 LABELLED_NODES = 30
 # コレクションの要素かを調べる問い合わせ1回あたりの URI の数
 MEMBERSHIP_BATCH = 300
 
-SHOW_KEYS = {"type", "edges", "nodes", "outside", "layout", "max_nodes", "size", "height", "isolated"}
+SHOW_KEYS = {"type", "edges", "nodes", "outside", "layout", "max_nodes", "size", "height", "isolated",
+             "project", "metrics"}
+PROJECT_KEYS = {"keep", "via", "min_weight", "max_shared", "label"}
 EDGE_KEYS = {"from", "to", "directed", "label"}
 NODE_KEYS = {"label", "kind", "x", "in_collection", "min_degree", "collection"}
 NODE_COLLECTION_KEYS = {"facet", "class", "view", "label"}
@@ -116,6 +131,25 @@ def validate_graph_show(name, show):
             unknown = set(conf) - NODE_COLLECTION_KEYS
             if unknown:
                 raise ConfigError(f"gadget({name})のshow(graph)の nodes.{var}.collection に未知のキー: {sorted(unknown)}")
+    project = show.get("project")
+    if project is not None:
+        if not isinstance(project, dict) or not project.get("keep") or not project.get("via"):
+            raise ConfigError(f"gadget({name})のshow(graph)の project には keep と via（変数名）が必要です")
+        unknown = set(project) - PROJECT_KEYS
+        if unknown:
+            raise ConfigError(f"gadget({name})のshow(graph)の project に未知のキー: {sorted(unknown)}")
+        variables = {v for edge in edges for v in (edge["from"], edge["to"])}
+        if project["keep"] not in variables or project["via"] not in variables or project["keep"] == project["via"]:
+            raise ConfigError(f"gadget({name})のshow(graph)の project の keep / via は edges の別々の変数です")
+        for key in ("min_weight", "max_shared"):
+            if key in project:
+                try:
+                    if int(project[key]) <= 0:
+                        raise ValueError
+                except (TypeError, ValueError) as e:
+                    raise ConfigError(f"gadget({name})のshow(graph)の project.{key} は正の整数です") from e
+    if "metrics" in show and not isinstance(show["metrics"], bool):
+        raise ConfigError(f"gadget({name})のshow(graph)の metrics は true / false です")
     for key, choices in (("outside", OUTSIDE_MODES), ("layout", LAYOUTS), ("size", SIZE_MODES),
                          ("isolated", OUTSIDE_MODES)):
         if key in show and show[key] not in choices:
@@ -298,22 +332,34 @@ def build_graph(rows, show, *, collection=None, params=None, members=None):
         nodes = {n: node for n, node in nodes.items() if n not in dropped}
         edges = {k: e for k, e in edges.items() if e["source"] not in dropped and e["target"] not in dropped}
 
+    # 片側への射影（同じ判例で一緒に参照される条どうしなど）
+    project = show.get("project")
+    min_weight = None
+    skipped_hubs = 0
+    if project:
+        min_weight = effective_min_weight(project, params)
+        nodes, edges, skipped_hubs = project_graph(nodes, edges, project, min_weight)
+
     degree = degrees(nodes, edges)
     # 辺のないノード（コレクション外の参照先を隠した結果など）は出さない
     if show.get("isolated", "hide") == "hide":
         nodes = {n: node for n, node in nodes.items() if degree[n]["degree"] > 0}
 
     total_nodes, total_edges = len(nodes), len(edges)
+    # 指標（被参照数・PageRank・連結成分）は、ノードを減らす前のグラフで計算する
+    metrics = graph_metrics(nodes, edges) if show.get("metrics", True) else None
     max_nodes = int(show.get("max_nodes", DEFAULT_MAX_NODES))
     truncated = len(nodes) > max_nodes
     if truncated:
-        ranked = sorted(nodes, key=lambda n: (-degree[n]["degree"], nodes[n]["label"]))
+        rank_key = "strength" if project else "degree"
+        ranked = sorted(nodes, key=lambda n: (-degree[n][rank_key], nodes[n]["label"]))
         kept = set(ranked[:max_nodes])
         nodes = {n: node for n, node in nodes.items() if n in kept}
         edges = {k: e for k, e in edges.items() if e["source"] in kept and e["target"] in kept}
         degree = degrees(nodes, edges)
 
-    size_mode = show.get("size") or ("indegree" if any(e["directed"] for e in edges.values()) else "degree")
+    size_mode = show.get("size") or ("strength" if project else
+                                     "indegree" if any(e["directed"] for e in edges.values()) else "degree")
     for n, node in nodes.items():
         node.update(degree[n])
         node["size"] = 0 if size_mode == "none" else degree[n][size_mode]
@@ -356,8 +402,57 @@ def build_graph(rows, show, *, collection=None, params=None, members=None):
         "positions": positions,
         "min_degree": min_degree,
         "min_kinds": [str(conf["kind"]) for conf in settings.values() if conf.get("min_degree")],
+        "project": project,
+        "via_kind": str(settings[project["via"]]["kind"]) if project else None,
+        "min_weight": min_weight,
+        "skipped_hubs": skipped_hubs,
+        "metrics": metrics,
+        "directed": any(e["directed"] for e in edges.values()),
     }
 
+
+def effective_min_weight(project, params):
+    """射影の辺の重みの下限（URL の graph.w が設定より優先）"""
+    try:
+        value = int((params or {}).get(WEIGHT_PARAM) or 0)
+    except (TypeError, ValueError):
+        value = 0
+    return value if value > 0 else int(project.get("min_weight", 1))
+
+
+def project_graph(nodes, edges, project, min_weight=1):
+    """二部グラフを keep の側だけのグラフにする。
+
+    via の側のノード（判例など）を共有する keep の側のノード（条など）どうしを、向きのない辺で結ぶ。
+    辺の重みは共有する via のノードの数。重みが min_weight より小さい辺は出さない。
+    つながる keep のノードが max_shared より多い via のノード（多くの判例が参照する条など）は、
+    組の数が膨らむうえ、似ていることの手がかりにならないので使わない。
+    返り値: (nodes, edges, 使わなかった via のノードの数)
+    """
+    keep_var, via_var = project["keep"], project["via"]
+    max_shared = int(project.get("max_shared", DEFAULT_MAX_SHARED))
+    around = {}
+    for edge in edges.values():
+        s, t = edge["source"], edge["target"]
+        for a, b in ((s, t), (t, s)):
+            if nodes.get(a, {}).get("var") == via_var and nodes.get(b, {}).get("var") == keep_var:
+                around.setdefault(a, set()).add(b)
+    pairs = {}
+    skipped = 0
+    for via, kept in around.items():
+        if len(kept) > max_shared:
+            skipped += 1
+            continue
+        ordered = sorted(kept)
+        for i, a in enumerate(ordered):
+            for b in ordered[i + 1:]:
+                pairs[(a, b)] = pairs.get((a, b), 0) + 1
+    new_edges = {
+        key: {"source": key[0], "target": key[1], "directed": False, "label": "", "weight": weight}
+        for key, weight in pairs.items() if weight >= min_weight
+    }
+    new_nodes = {n: node for n, node in nodes.items() if node.get("var") == keep_var}
+    return new_nodes, new_edges, skipped
 
 def effective_min_degree(settings, params):
     """min_degree の値（URL の graph.min が設定より優先）。min_degree を持つノードがなければ None"""
@@ -393,16 +488,92 @@ def node_filter_url(conf, value, params):
 
 
 def degrees(nodes, edges):
-    degree = {n: {"indegree": 0, "outdegree": 0, "degree": 0} for n in nodes}
+    degree = {n: {"indegree": 0, "outdegree": 0, "degree": 0, "strength": 0} for n in nodes}
     for edge in edges.values():
         s, t = edge["source"], edge["target"]
         if s in degree:
             degree[s]["outdegree"] += 1
             degree[s]["degree"] += 1
+            degree[s]["strength"] += edge["weight"]
         if t in degree:
             degree[t]["indegree"] += 1
             degree[t]["degree"] += 1
+            degree[t]["strength"] += edge["weight"]
     return degree
+
+
+# --------------------------------------------------
+# 指標: PageRank・連結成分
+# --------------------------------------------------
+
+def pagerank(nodes, edges, damping=0.85, iterations=100, tolerance=1e-10):
+    """PageRank。向きのある辺はその向きに、向きのない辺は両方向に、重みに比例して流す。
+    出ていく辺のないノードの値は全体に均等に配る。"""
+    ids = list(nodes)
+    count = len(ids)
+    if not count:
+        return {}
+    out = {n: [] for n in ids}
+    for edge in edges.values():
+        s, t, w = edge["source"], edge["target"], edge.get("weight", 1)
+        if s in out and t in out:
+            out[s].append((t, w))
+            if not edge["directed"]:
+                out[t].append((s, w))
+    totals = {n: sum(w for _, w in out[n]) for n in ids}
+    rank = {n: 1 / count for n in ids}
+    for _ in range(iterations):
+        dangling = sum(rank[n] for n in ids if not totals[n])
+        new = {n: (1 - damping) / count + damping * dangling / count for n in ids}
+        for n in ids:
+            if totals[n]:
+                share = damping * rank[n] / totals[n]
+                for t, w in out[n]:
+                    new[t] += share * w
+        change = sum(abs(new[n] - rank[n]) for n in ids)
+        rank = new
+        if change < tolerance:
+            break
+    return rank
+
+
+def components(nodes, edges):
+    """連結成分（辺の向きは見ない）。{ノード: 成分の番号}、成分は大きい順に 1, 2, …"""
+    parent = {n: n for n in nodes}
+
+    def find(n):
+        while parent[n] != n:
+            parent[n] = parent[parent[n]]
+            n = parent[n]
+        return n
+
+    for edge in edges.values():
+        if edge["source"] in parent and edge["target"] in parent:
+            a, b = find(edge["source"]), find(edge["target"])
+            if a != b:
+                parent[a] = b
+    groups = {}
+    for n in nodes:
+        groups.setdefault(find(n), []).append(n)
+    ordered = sorted(groups.values(), key=lambda g: (-len(g), min(g)))
+    return {n: i for i, group in enumerate(ordered, 1) for n in group}, [len(g) for g in ordered]
+
+
+def graph_metrics(nodes, edges):
+    """ノードごとの指標（被参照数・つながり・PageRank・連結成分）と、成分の数・大きさ"""
+    degree = degrees(nodes, edges)
+    rank = pagerank(nodes, edges)
+    component, sizes = components(nodes, edges)
+    rows = []
+    for n, node in nodes.items():
+        rows.append({
+            "id": n, "label": node["label"], "kind": node["kind"], "uri": node["uri"],
+            "x": node["x"], "outside": node.get("outside", False),
+            **degree[n], "pagerank": rank.get(n, 0.0),
+            "component": component[n], "component_size": sizes[component[n] - 1],
+        })
+    rows.sort(key=lambda r: (-r["pagerank"], r["label"]))
+    return {"rows": rows, "component_sizes": sizes}
 
 
 # --------------------------------------------------
@@ -571,7 +742,9 @@ def graph_payload(graph):
     if "timeline" in graph.get("positions", {}):
         elements.extend(axis_elements(graph["nodes"], graph["positions"]["timeline"]))
     sizes = [node["size"] for node in graph["nodes"]] or [0]
+    weights = [edge["weight"] for edge in graph["edges"]] or [1]
     return {
+        "weight_range": [min(weights), max(weights)],
         "elements": elements,
         "layout": graph["layout"],
         "positions": graph.get("positions", {}),
@@ -657,14 +830,93 @@ def render_graph(graph, params=None, height=None):
   {''.join(f'<p class="gadget-notice">{escape(n)}</p>' for n in notes)}
   {_outside_toggle(graph, params)}
   {_min_degree_links(graph, params)}
+  {_min_weight_links(graph, params)}
   <div class="kg-graph-body">
     <div class="kg-graph" id="{element_id}" style="height:{height}px"></div>
     <div class="kg-graph-panel" id="{element_id}-panel" hidden></div>
   </div>
   <script type="application/json" id="{element_id}-data">{_json_for_script(payload)}</script>
   <script>kgDrawGraph("{element_id}");</script>
+  {render_metrics(graph, {n["id"] for n in graph["nodes"]})}
 </div>
 """
+
+
+def _choice_links(params, param, choices, current):
+    links = []
+    for value in sorted(set(choices) | {current}):
+        if value == current:
+            links.append(f'<strong>{value}</strong>')
+        else:
+            url = make_url(params, drop={param}, add=[(param, str(value))])
+            links.append(f'<a href="{escape(url)}">{value}</a>')
+    return " ".join(links)
+
+
+def _min_weight_links(graph, params):
+    """射影の「共有する判例が ○ 以上の組だけ線で結ぶ」の切り替え"""
+    if not graph.get("project") or params is None:
+        return ""
+    via = graph.get("via_kind") or ""
+    text = _choice_links(params, WEIGHT_PARAM, WEIGHT_CHOICES, graph["min_weight"])
+    note = ""
+    if graph.get("skipped_hubs"):
+        note = (f'（{DEFAULT_MAX_SHARED if not graph["project"].get("max_shared") else graph["project"]["max_shared"]} '
+                f'より多くとつながる{escape(via)} {graph["skipped_hubs"]:,} 件は、組を作るのに使っていません）')
+    return f'<p class="kg-graph-min">線で結ぶ組: 共有する{escape(via)}が {text} 以上{note}</p>'
+
+
+def render_metrics(graph, shown):
+    """指標の表（PageRank の上位）と連結成分。shown: 図に出ているノード（「図で見る」を付ける）"""
+    metrics = graph.get("metrics")
+    if not metrics or not metrics["rows"]:
+        return ""
+    rows = metrics["rows"]
+    count = len(rows)
+    sizes = metrics["component_sizes"]
+    directed = graph.get("directed")
+    has_year = any(r["x"] is not None for r in rows[:METRICS_ROWS])
+    if directed:
+        heads = ["参照されている", "参照している"]
+    elif graph.get("project"):
+        heads = ["つながり", f"共有する{graph.get('via_kind') or ''}の延べ数"]
+    else:
+        heads = ["つながり"]
+    header = ("<tr><th>順位</th><th>名前</th>" + ("<th>年</th>" if has_year else "")
+              + "".join(f"<th>{escape(h)}</th>" for h in heads)
+              + '<th title="平均を 1 とした値">PageRank</th><th>連結成分</th><th></th></tr>')
+    body = []
+    for i, row in enumerate(rows[:METRICS_ROWS], 1):
+        name = escape(row["label"])
+        if row["uri"]:
+            name = f'<a href="/resource?uri={quote(row["uri"], safe="")}">{name}</a>'
+        if row["outside"]:
+            name += '<span class="kg-graph-outside-mark">（コレクション外）</span>'
+        year = ""
+        if has_year:
+            x = row["x"]
+            year = f"<td>{'' if x is None else (int(x) if float(x).is_integer() else x)}</td>"
+        if directed:
+            values = [row["indegree"], row["outdegree"]]
+        elif graph.get("project"):
+            values = [row["degree"], row["strength"]]
+        else:
+            values = [row["degree"]]
+        cells = "".join(f'<td class="num">{v:,}</td>' for v in values)
+        locate = (f'<button type="button" class="kg-graph-locate" data-node="{escape(row["id"])}">図で見る</button>'
+                  if row["id"] in shown else "")
+        component = f'{row["component"]}（{row["component_size"]:,}）'
+        body.append(f'<tr><td class="num">{i}</td><td>{name}</td>{year}{cells}'
+                    f'<td class="num">{row["pagerank"] * count:.2f}</td><td>{component}</td><td>{locate}</td></tr>')
+    largest = sizes[0] if sizes else 0
+    summary = (f'指標（PageRank の上位 {min(count, METRICS_ROWS)} 件）・連結成分 {len(sizes):,} 個'
+               f'（最大 {largest:,} ノード）')
+    return (f'<details class="kg-graph-metrics" open><summary>{escape(summary)}</summary>'
+            '<p class="kg-graph-metrics-note">PageRank は、つながりの多いノードとつながるほど高くなる値です（平均を 1 とした値）。'
+            '連結成分は、線でたどってつながるノードのまとまりで、大きい順の番号と（ノードの数）です。'
+            f'{"指標は、図で省いたノードも含めて計算しています。" if graph.get("truncated") else ""}</p>'
+            f'<table class="kg-graph-metrics-table"><thead>{header}</thead><tbody>{"".join(body)}</tbody></table>'
+            '</details>')
 
 
 def _min_degree_links(graph, params):

@@ -985,3 +985,70 @@ a.kg-variant:hover {
   margin: 2px 0 6px;
   font-size: 13px;
 }
+
+/* ネットワーク図の指標の表（2026.10.28） */
+.kg-graph-metrics {
+  margin-top: 12px;
+  font-size: 13px;
+}
+
+.kg-graph-metrics summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #334155;
+}
+
+.kg-graph-metrics-note {
+  margin: 6px 0;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.kg-graph-metrics-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.kg-graph-metrics-table th,
+.kg-graph-metrics-table td {
+  padding: 3px 8px;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+  vertical-align: top;
+}
+
+.kg-graph-metrics-table th {
+  background: #f8fafc;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.kg-graph-metrics-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.kg-graph-locate {
+  padding: 0 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #fff;
+  color: #0369a1;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.kg-graph-outside-mark {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.kg-graph-weight {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: #e0f2fe;
+  color: #075985;
+  font-size: 11px;
+}

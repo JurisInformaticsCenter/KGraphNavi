@@ -403,3 +403,92 @@ def test_make_gadget_switches_variant():
     assert "v.RefLawNetwork=clause" in switch and "graph.min" not in switch
     # 元のガジェットの設定は変えない
     assert gadget.show_method["nodes"]["article"]["kind"] == "条"
+
+
+# --------------------------------------------------
+# 射影（共参照・書誌結合）と指標（PageRank・連結成分）（2026.10.28）
+# --------------------------------------------------
+
+from kgraphnavi.graph import components, pagerank, project_graph
+
+
+def test_cocitation_projection():
+    show = {**BI_SHOW, "project": {"keep": "article", "via": "entity", "min_weight": 1}, "layout": "force"}
+    graph = build_graph(BI_ROWS, {**show, "nodes": {**BI_SHOW["nodes"],
+                                                   "article": {**BI_SHOW["nodes"]["article"], "min_degree": 1}}})
+    edges = {(e["source"], e["target"]): e["weight"] for e in graph["edges"]}
+    # 709 と 1 は A・B の2件の判例が一緒に参照する。709 と 90 は C だけ
+    assert edges[(LAW + "1", LAW + "709")] == 2
+    assert edges[(LAW + "709", LAW + "90")] == 1
+    assert all(n["kind"] == "条" for n in graph["nodes"])
+    assert graph["via_kind"] == "判例"
+    # 大きさは重みの合計（共有する判例の延べ数）
+    node = next(n for n in graph["nodes"] if n["id"] == LAW + "709")
+    assert node["size"] == 3 and node["strength"] == 3
+    # 重みの下限（URL の graph.w）
+    params = request_params(MultiDict([("graph.w", "2"), ("graph.min", "1")]), path="/collection")
+    graph = build_graph(BI_ROWS, show, params=params)
+    assert [(e["source"], e["target"]) for e in graph["edges"]] == [(LAW + "1", LAW + "709")]
+    assert graph["min_weight"] == 2
+    html = render_graph(graph, params)
+    assert "線で結ぶ組: 共有する判例が" in html and "graph.w=3" in html
+
+
+def test_coupling_projection_skips_hub():
+    nodes, edges = collect_graph(BI_ROWS, BI_SHOW)
+    # 709 は A・B・C の3件とつながる。max_shared=2 なら組を作るのに使わない
+    new_nodes, new_edges, skipped = project_graph(nodes, edges, {"keep": "entity", "via": "article", "max_shared": 2})
+    assert skipped == 1
+    assert set(new_nodes) == {DOC + n for n in "ABCD"}
+    assert {(e["source"], e["target"]): e["weight"] for e in new_edges.values()} == {(DOC + "A", DOC + "B"): 1}
+    new_nodes, new_edges, skipped = project_graph(nodes, edges, {"keep": "entity", "via": "article"})
+    assert skipped == 0
+    assert {(e["source"], e["target"]): e["weight"] for e in new_edges.values()} == {
+        (DOC + "A", DOC + "B"): 2, (DOC + "A", DOC + "C"): 1, (DOC + "B", DOC + "C"): 1}
+
+
+def test_pagerank_and_components():
+    def edge(s, t, directed=True, w=1):
+        return {"source": s, "target": t, "directed": directed, "weight": w}
+    nodes = {n: {} for n in "ABCDE"}
+    edges = {1: edge("A", "C"), 2: edge("B", "C"), 3: edge("C", "D"), 4: edge("E", "E")}
+    rank = pagerank(nodes, edges)
+    assert abs(sum(rank.values()) - 1) < 1e-9
+    assert rank["D"] > rank["C"] > rank["A"] == pytest.approx(rank["B"])
+    # 向きのない辺は両方向に流すので、同じ形なら同じ値
+    rank = pagerank({n: {} for n in "XYZ"}, {1: edge("X", "Y", False), 2: edge("Y", "Z", False)})
+    assert rank["X"] == pytest.approx(rank["Z"]) and rank["Y"] > rank["X"]
+    component, sizes = components(nodes, {1: edge("A", "C"), 2: edge("B", "C"), 3: edge("D", "E")})
+    assert sizes == [3, 2]
+    assert component["A"] == component["B"] == component["C"] == 1 and component["D"] == 2
+
+
+def test_metrics_table():
+    graph = build_graph(ROWS, SHOW, members=MEMBERS)
+    rows = graph["metrics"]["rows"]
+    assert rows[0]["id"] == DOC + "C"                      # 最も参照される判例
+    assert graph["metrics"]["component_sizes"] == [4]
+    html = render_graph(graph, request_params(MultiDict(), path="/collection"))
+    assert "指標（PageRank の上位 4 件）・連結成分 1 個（最大 4 ノード）" in html
+    assert "<th>参照されている</th>" in html and "<th>年</th>" in html
+    assert f'data-node="{DOC}C"' in html
+    # 図でノードを省いても、指標は省く前のグラフで計算する
+    graph = build_graph(ROWS, {**SHOW, "max_nodes": 2}, members=MEMBERS)
+    assert len(graph["metrics"]["rows"]) == 4 and len(graph["nodes"]) == 2
+    html = render_graph(graph)
+    assert "図で省いたノードも含めて" in html
+    assert html.count('class="kg-graph-locate"') == 2      # 図に出ているものだけ「図で見る」
+    # metrics: false なら出さない
+    assert "kg-graph-metrics" not in render_graph(build_graph(ROWS, {**SHOW, "metrics": False}, members=MEMBERS))
+
+
+@pytest.mark.parametrize("project", [
+    {"keep": "article"},
+    {"keep": "article", "via": "article"},
+    {"keep": "article", "via": "nothere"},
+    {"keep": "article", "via": "entity", "min_weight": 0},
+    {"keep": "article", "via": "entity", "weight": 2},
+])
+def test_validate_project_errors(project):
+    with pytest.raises(ConfigError):
+        validate_graph_show("g", {**BI_SHOW, "project": project})

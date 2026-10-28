@@ -2437,6 +2437,19 @@
                   entity: {label: label, kind: 判例, x: year}
                   article: {label: articlelabel, kind: 法令, min_degree: 2,
                             collection: {facet: reflaw_core}}
+        # 片側への射影（2026.10.28）。条どうしを、両方を参照する判例の数で結ぶ（共参照）
+        - name: cocited
+          label: 一緒に参照される条
+          show:
+              project: {keep: article, via: entity, min_weight: 2}
+              layout: force
+        # 判例どうしを、共通して参照する条の数で結ぶ（書誌結合）。多くの判例が参照する条（200件を超える判例と
+        # つながる条）は、組が膨らむうえ似ていることの手がかりにならないので使わない
+        - name: coupling
+          label: 同じ条を参照する判例
+          show:
+              project: {keep: entity, via: article, min_weight: 2, max_shared: 200}
+              layout: force
 -   def: gadget
     name: CaseLawDocumentList
     title: 判決文書

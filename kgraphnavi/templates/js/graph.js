@@ -11,6 +11,11 @@
         return hi > lo ? "mapData(size, " + lo + ", " + hi + ", 14, 56)" : 22;
     }
 
+    function edgeWidth(range) {
+        var lo = (range || [1, 1])[0], hi = (range || [1, 1])[1];
+        return hi > lo ? "mapData(weight, " + lo + ", " + hi + ", 1, 7)" : 1.5;
+    }
+
     function stylesheet(payload) {
         var size = nodeSize(payload.size_range);
         return [
@@ -32,7 +37,7 @@
             } },
             { selector: "node.focus", style: { "border-color": "#0f172a", "border-width": 3, "z-index": 20 } },
             { selector: "edge", style: {
-                "width": "mapData(weight, 1, 5, 1, 4)", "line-color": "#cbd5e1", "curve-style": "straight",
+                "width": edgeWidth(payload.weight_range), "line-color": "#cbd5e1", "curve-style": "straight",
                 "opacity": 0.85
             } },
             // 年で並べるときは、辺を弧にする（同じ高さのノードの間の辺が重ならないように）
@@ -119,14 +124,19 @@
             if (!nodes.length) { return; }
             panel.appendChild(element("h4", "kg-graph-panel-sub", label + "（" + nodes.length + "）"));
             var list = element("ul", "kg-graph-neighbors");
-            nodes.sort(function (a, b) { return b.data("size") - a.data("size"); }).slice(0, 30).forEach(function (n) {
-                var item = element("li");
-                var button = element("button", "kg-graph-neighbor", n.data("label"));
-                button.type = "button";
-                button.addEventListener("click", function () { focus(n); });
-                item.appendChild(button);
-                list.appendChild(item);
-            });
+            // 辺の重み（一緒に参照された判例の数など）が 1 より大きければ、重みの大きい順に並べて添える
+            function weight(n) { return node.edgesWith(n).max(function (e) { return e.data("weight"); }).value || 1; }
+            nodes.sort(function (a, b) { return weight(b) - weight(a) || b.data("size") - a.data("size"); })
+                .slice(0, 30).forEach(function (n) {
+                    var item = element("li");
+                    var button = element("button", "kg-graph-neighbor", n.data("label"));
+                    button.type = "button";
+                    button.addEventListener("click", function () { focus(n); });
+                    var w = weight(n);
+                    if (w > 1) { button.appendChild(element("span", "kg-graph-weight", String(w))); }
+                    item.appendChild(button);
+                    list.appendChild(item);
+                });
             panel.appendChild(list);
             if (nodes.length > 30) { panel.appendChild(element("p", "kg-graph-more", "ほか " + (nodes.length - 30) + " 件")); }
         }
@@ -219,6 +229,16 @@
         });
 
         if (wrap) {
+            // 指標の表の「図で見る」
+            wrap.addEventListener("click", function (event) {
+                var button = event.target.closest ? event.target.closest(".kg-graph-locate") : null;
+                if (!button) { return; }
+                var node = cy.getElementById(button.dataset.node);
+                if (!node || node.empty()) { return; }
+                container.scrollIntoView({ behavior: "smooth", block: "center" });
+                focus(node);
+                cy.animate({ center: { eles: node }, zoom: Math.max(cy.zoom(), 1) }, { duration: 400 });
+            });
             var fit = wrap.querySelector(".kg-graph-fit");
             if (fit) { fit.addEventListener("click", function () { cy.fit(undefined, 30); }); }
             var select = wrap.querySelector(".kg-graph-layout");

@@ -283,8 +283,8 @@ class Gadget:
             if variant is current:
                 links.append(f'<span class="kg-variant current">{label}</span>')
             else:
-                # 切り替えると数の条件（graph.min など）の意味が変わるので外す
-                url = make_url(params or {}, drop={key, "graph.min"}, add=[(key, variant["name"])])
+                # 切り替えると数の条件（graph.min・graph.w）の意味が変わるので外す
+                url = make_url(params or {}, drop={key, "graph.min", "graph.w"}, add=[(key, variant["name"])])
                 links.append(f'<a class="kg-variant" href="{html_escape(url)}">{label}</a>')
         return gadget, f'<div class="kg-variants">{"".join(links)}</div>'
 
