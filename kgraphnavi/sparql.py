@@ -86,12 +86,29 @@ RETRIES = 1          # 一時的なエラーのときにやり直す回数
 RETRY_WAIT = 1.5     # やり直す前に待つ秒数
 
 
+# SPARQLWrapper の例外の種類 → HTTP の状態コード（例外に状態コードが付いていないため）
+EXCEPTION_STATUS = {
+    "QueryBadFormed": 400,
+    "Unauthorized": 401,
+    "EndPointNotFound": 404,
+    "URITooLong": 414,
+    "EndPointInternalError": 500,
+}
+# 接続そのものの失敗（エンドポイントに届かなかった）
+CONNECTION_ERRORS = ("URLError", "TimeoutError", "socket.timeout", "RemoteDisconnected",
+                     "ConnectionResetError", "ConnectionRefusedError", "ConnectionError")
+# 問い合わせの誤り（構文・意味）を示すエンドポイントのエラー。Virtuoso の SP0xx は SPARQL コンパイラのエラー
+_QUERY_ERROR = re.compile(r"\bSP0\d\d\b|SPARQL compiler|syntax error|parse error|malformed query", re.IGNORECASE)
+
+
 def describe_error(e):
     """例外から HTTP の状態コードと、エンドポイントのエラーの1行目（Virtuoso のエラーコードなど）を取り出す"""
     status = getattr(e, "code", None)
     text = str(e)
     if status is None and (m := re.search(r"HTTP status code (\d{3})", text)):
         status = int(m.group(1))
+    if status is None:
+        status = EXCEPTION_STATUS.get(type(e).__name__)
     first_line = ""
     if m := re.search(r"Response:\s*b?['\"](.*?)(?:\\n|$)", text, re.S):
         first_line = m.group(1).strip()
@@ -100,26 +117,47 @@ def describe_error(e):
     return status, first_line[:300]
 
 
-def is_transient(e, status):
+def is_query_error(status, first_line):
+    """問い合わせの誤りか（やり直しても同じ結果になる）"""
+    return status in (400, 414) or bool(_QUERY_ERROR.search(first_line or ""))
+
+
+def is_transient(e, status, first_line=""):
     """やり直す価値のあるエラーか（混雑・中継の失敗・タイムアウト・エンドポイントの内部エラー）"""
+    if is_query_error(status, first_line):
+        return False
     if status in (500, 502, 503, 504):
         return True
-    return type(e).__name__ in ("URLError", "TimeoutError", "RemoteDisconnected", "ConnectionResetError")
+    return type(e).__name__ in CONNECTION_ERRORS
 
 
-def user_message(status, first_line):
-    """利用者向けの説明"""
-    if status in (502, 503, 504):
+def user_message(status, first_line, connection_failed=False):
+    """利用者向けの説明。再読み込みを勧めるのは、時間をおけば直りうるエラーのときだけ"""
+    retry = False
+    if is_query_error(status, first_line):
+        if status == 414:
+            head = "SPARQL の問い合わせが長すぎて、エンドポイントが受け付けませんでした（HTTP 414）。"
+        else:
+            head = ("SPARQL の問い合わせに誤りがあり、エンドポイントが受け付けませんでした。"
+                    "設定ファイルの問い合わせか、KGraphNavi の不具合です。")
+    elif status in (502, 503, 504):
         head = f"SPARQL エンドポイントが応答しませんでした（HTTP {status}）。混雑しているか、一時的に止まっているようです。"
+        retry = True
     elif status == 500:
         head = "SPARQL エンドポイントが内部エラーを返しました（HTTP 500）。公開のエンドポイントでは一時的な不具合のこともあります。"
-    elif status == 400:
-        head = "SPARQL エンドポイントが問い合わせを受け付けませんでした（HTTP 400）。設定ファイルの問い合わせの誤りかもしれません。"
+        retry = True
+    elif status == 404:
+        head = "SPARQL エンドポイントが見つかりませんでした（HTTP 404）。設定の sparql_endpoint を確かめてください。"
+    elif status == 401:
+        head = "SPARQL エンドポイントに認証を求められました（HTTP 401）。"
     elif status:
         head = f"SPARQL エンドポイントがエラーを返しました（HTTP {status}）。"
-    else:
+    elif connection_failed:
         head = "SPARQL エンドポイントに接続できませんでした。"
-    tail = "少し待ってから、ページを再読み込みしてください。" if status != 400 else ""
+        retry = True
+    else:
+        head = "SPARQL の問い合わせでエラーが起きました。"
+    tail = "少し待ってから、ページを再読み込みしてください。" if retry else ""
     return f"{head}{tail}" + (f"（{first_line}）" if first_line else "")
 
 
@@ -165,12 +203,14 @@ class SPARQL:
                 break
             except Exception as e:
                 status, first_line = describe_error(e)
-                if attempt < RETRIES and is_transient(e, status):
+                if attempt < RETRIES and is_transient(e, status, first_line):
                     logger.warning("SPARQL の一時的なエラー（%s）。やり直します: %s", status or type(e).__name__, first_line)
                     time.sleep(RETRY_WAIT)
                     continue
                 logger.exception("SPARQL execution failed")
-                raise SparqlError(user_message(status, first_line), detail=str(e), status=status) from e
+                message = user_message(status, first_line,
+                                       connection_failed=type(e).__name__ in CONNECTION_ERRORS)
+                raise SparqlError(message, detail=str(e), status=status) from e
     
         logger.debug("*****SPARQL results=%r", results)
     

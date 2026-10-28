@@ -125,3 +125,49 @@ def test_long_query_is_sent_by_post(monkeypatch):
     client.exsparql(f"SELECT ?uri WHERE {{ ?uri a ?c FILTER(?uri IN ({iris})) }}")
     assert sent[0][0] == "GET"
     assert sent[1][0] == "POST"
+
+
+class QueryBadFormed(Exception):
+    pass
+
+
+VIRTUOSO_SYNTAX = ("QueryBadFormed: A bad request has been sent to the endpoint: probably the SPARQL query is badly formed. \n\n"
+                   "Response:\nb'Virtuoso 37000 Error SP030: SPARQL compiler, line 0: Parentheses are not balanced at \\'}\\'\\n\\nSPARQL query:\\n...'")
+
+
+def test_syntax_error_is_not_told_to_reload():
+    """構文の誤りは、再読み込みしても直らないので「少し待って再読み込み」と言わない。接続の失敗とも言わない"""
+    e = QueryBadFormed(VIRTUOSO_SYNTAX)
+    status, first = describe_error(e)
+    assert status == 400 and first.startswith("Virtuoso 37000 Error SP030")
+    message = user_message(status, first)
+    assert "問い合わせに誤り" in message and "SP030" in message
+    assert "再読み込み" not in message and "接続できません" not in message
+    assert not is_transient(e, status, first)
+    # 状態コードが分からなくても、Virtuoso の SPARQL コンパイラのエラーなら問い合わせの誤り
+    assert "再読み込み" not in user_message(None, "Virtuoso 37000 Error SP030: SPARQL compiler, line 24: syntax error")
+    assert not is_transient(EndPointInternalError("x"), 500, "Virtuoso 37000 Error SP030: SPARQL compiler")
+
+
+def test_connection_failure_and_unknown_error_messages():
+    connection = user_message(None, "<urlopen error [Errno 61] Connection refused>", connection_failed=True)
+    assert "接続できませんでした" in connection and "再読み込み" in connection
+    unknown = user_message(None, "something odd")
+    assert "接続できません" not in unknown and "再読み込み" not in unknown
+    assert "sparql_endpoint" in user_message(404, "Not Found")
+
+
+def test_exsparql_syntax_error_is_not_retried(monkeypatch):
+    class SyntaxWrapper(FlakyWrapper):
+        calls = 0
+
+        def query(self):
+            SyntaxWrapper.calls += 1
+            raise QueryBadFormed(VIRTUOSO_SYNTAX)
+
+    monkeypatch.setattr(sparql_module, "SPARQLWrapper", SyntaxWrapper)
+    monkeypatch.setattr(sparql_module, "RETRY_WAIT", 0)
+    with pytest.raises(SparqlError) as info:
+        SPARQL("http://example.org/sparql").exsparql("SELECT * WHERE { ?s ?p ?o ")
+    assert SyntaxWrapper.calls == 1
+    assert "再読み込み" not in info.value.message
