@@ -26,7 +26,7 @@ from .errors import KGraphError, SparqlError, CollectionError      # 作成し�
 from .collection import Collection
 from .terms import is_iri
 from .saved import check_name, OPERATIONS
-from .topic import TopicBuilder, CommandTopicBuilder, render_topic, override_from_args
+from .topic import TopicBuilder, CommandTopicBuilder, render_topic, render_topic_progress, override_from_args
 from .compare import items_from_args, choose_view, sort_items, render_compare, COMPARE_MAX
 logger = logging.getLogger(__name__)
 
@@ -456,14 +456,41 @@ def init_app(app):
         application = current_app.extensions["application"]
         if not application.topic_config:
             return error("トピックの設定がない", "設定ファイルに topic: を書いてください"), 404
-        try:
-            keyword, res = build_topic(application, request.args)
-        except CollectionError as e:
-            return error("トピックを作れない", str(e)), 400
+        cfg = application.topic_config
+        keyword = (request.args.get("q") or "").strip()
+        if keyword and cfg.get("builder") == "command" and not (request.args.get("builder") == "sparql" and cfg.get("link_properties")):
+            # 外のコマンドは数分かかるので裏で動かし、途中の段階を表示する（2026.11.1）
+            try:
+                res, job = CommandTopicBuilder(cfg).start(keyword, override_from_args(request.args))
+            except ValueError as e:
+                return error("トピックを作れない", str(e)), 400
+            if res is None:
+                if job.state == "error":
+                    return error("トピックを作れない", job.error), 400
+                html = make_html(render_topic_progress(job, request.full_path), f"トピック: {keyword}（作成中）",
+                                 navi=application.navi, libraries=[], category="_Topic")
+                return Response(html, mimetype="text/html")
+        else:
+            try:
+                keyword, res = build_topic(application, request.args)
+            except CollectionError as e:
+                return error("トピックを作れない", str(e)), 400
         body = render_topic(res, application.topic_config, keyword, override_from_args(request.args) is not None,
                             request.full_path, application.saved_store is not None)
         html = make_html(body, f"トピック: {keyword}", navi=application.navi, libraries=[], category="_Topic")
         return Response(html, mimetype="text/html")
+
+    @app.route("/topic/status", methods=["GET"])
+    def topic_status() -> Response:
+        """作っている途中のトピックの段階（/topic の作成中のページが2秒ごとに読む。2026.11.1）"""
+        import json
+        job = CommandTopicBuilder.JOBS.get(request.args.get("id", ""))
+        if job is None:
+            body = {"state": "error", "error": "作っているトピックが見つかりません（KGraphNavi を起動し直した？）。ページを読み直してください",
+                    "elapsed": 0, "steps": []}
+        else:
+            body = job.status()
+        return Response(json.dumps(body, ensure_ascii=False), mimetype="application/json")
 
     @app.route("/topic/save", methods=["POST"])
     def save_topic() -> Response:

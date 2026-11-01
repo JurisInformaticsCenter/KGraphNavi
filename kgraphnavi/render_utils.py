@@ -173,7 +173,10 @@ def get_item_data(column, record):
     # 元データ
     data = record.get(key)
     # 表示値
-    if "string" in column:
+    if "string" in column and item_type in ("link", "directlink") and not column.get("href") \
+            and not column.get("link") and not column.get("collection") and not get_raw_value(data):
+        value = ""   # 決まった文字列のリンク（「本文の判断へ」）は、リンク先が無ければ出さない（2026.11.1）
+    elif "string" in column:
         value = replace_variables(column["string"], record)
     elif item_type == "image":
         value = get_raw_value(data)

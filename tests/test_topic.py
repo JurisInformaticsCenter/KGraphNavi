@@ -87,7 +87,7 @@ def test_topic_page_and_save(client, monkeypatch):
     c, sent, application = client
     application.topic_config["min_count"] = 1
     html = c.get("/topic?q=stratovolcano").get_data(as_text=True)
-    assert "トピック「stratovolcano」の案" in html
+    assert "トピック「stratovolcano」" in html and "1. 何をしたか" in html and "3. 次にできること" in html
     assert "Stratovolcanoes_of_Japan" in html or "Stratovolcanoes of Japan" in html
     assert "Mount Rainier" in html          # 語は無いが、主なリンクで入る（中）
     assert any('CONTAINS(LCASE(STR(?_t1)), LCASE("stratovolcano"))' in q for q in sent)
@@ -118,3 +118,48 @@ def test_command_builder(tmp_path):
     assert "--add-clause" in extra and "L1" in extra and ["--drop-word", "x"] == extra[2:4] and "--add-related" in extra
     res = b.build("パワーハラスメント")
     assert res.seed_count == 2 and res.links[0].key() == "L1" and res.members[0][2] == "強" and res.related == [("いじめ", True)]
+
+
+def test_command_builder_async_and_render(tmp_path):
+    """外のコマンドを裏で動かし、途中の段階（@@進み）を取る。詳しい手がかりで画面を作る（2026.11.1）"""
+    import sys, time
+    from kgraphnavi.topic import CommandTopicBuilder, render_topic, render_topic_progress
+    script = tmp_path / "maker2.py"
+    script.write_text(
+        "import json, sys, time\n"
+        "a = sys.argv[1:]; out = a[a.index('--json') + 1]\n"
+        "print('@@進み 語を広げました', file=sys.stderr, flush=True); time.sleep(0.3)\n"
+        "print('@@進み 本文を数えています', file=sys.stderr, flush=True)\n"
+        "json.dump({'keyword': a[0], 'seed_count': 1, 'total': 10, 'words': [{'word': a[0], 'kind': 'キーワード'}],"
+        " 'links': [{'id': 'L1', 'uri': 'http://x/L1', 'label': '公職選挙法204条', 'prop': 'p', 'count': 1, 'df': 2, 'lift': 5, 'role': 'main'}],"
+        " 'members': [{'uri': 'http://x/D1', 'label': '選挙無効請求事件', 'level': '強', 'via': '条|語', 'casename': '選挙無効請求事件',"
+        " 'caseno': '平成29(行ツ)47', 'court': '最高裁判所大法廷', 'date': '2017-09-27',"
+        " 'clauses': [{'label': '公職選挙法204条', 'role': 'main'}], 'words': [[a[0], 12]], 'related': [], 'name_hit': False}],"
+        " 'summary': {'words': 1, 'seed': 1, 'main': 1, 'aux': 0, 'counted_words': 1, 'levels': {'強': 1, '中': 0, '弱': 0}}}, open(out, 'w'))\n",
+        encoding="utf-8")
+    cfg = topic_settings({"builder": "command", "command": [sys.executable, str(script), "{q}", "--json", "{json}"]})
+    CommandTopicBuilder.CACHE.clear(); CommandTopicBuilder.JOBS.clear()
+    b = CommandTopicBuilder(cfg)
+    res, job = b.start("選挙制度")
+    assert res is None and job.state == "running"
+    assert "作っています" in render_topic_progress(job, "/topic?q=選挙制度")
+    job.done.wait(10)
+    st = job.status()
+    assert st["state"] == "done" and [s["msg"] for s in st["steps"]] == ["語を広げました", "本文を数えています"]
+    res, job2 = b.start("選挙制度")          # 2回目は覚えておいた結果
+    assert job2 is None and res.details["http://x/D1"]["court"] == "最高裁判所大法廷"
+    html = render_topic(res, cfg, "選挙制度", False, "/topic?q=選挙制度", True)
+    assert "平成29(行ツ)47 最高裁判所大法廷 2017-09-27" in html and "主な条: 公職選挙法204条" in html
+    assert "語「選挙制度」本文12回" in html and "強だけ" in html and "コレクションとして保存" in html
+
+
+def test_command_builder_error(tmp_path):
+    import sys
+    from kgraphnavi.topic import CommandTopicBuilder
+    script = tmp_path / "bad.py"
+    script.write_text("import sys\nprint('だめ', file=sys.stderr)\nsys.exit(3)\n", encoding="utf-8")
+    cfg = topic_settings({"builder": "command", "command": [sys.executable, str(script), "{q}", "--json", "{json}"]})
+    CommandTopicBuilder.CACHE.clear(); CommandTopicBuilder.JOBS.clear()
+    res, job = CommandTopicBuilder(cfg).start("x")
+    job.done.wait(10)
+    assert job.state == "error" and "失敗しました（3）" in job.error and "だめ" in job.error
