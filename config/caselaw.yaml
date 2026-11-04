@@ -191,6 +191,24 @@
         - LawDefinition
         - CaseLawWithThisKeyword
         - CaseLawContainingThisTerm
+# 法令の語（law:<語>。~/nii/law の defword.ttl の定義語 lawo:Term、extracted.ttl の特徴語 lawo:Keyword。2026.11.3）。
+# 以前は type: '*' のページになり、Out・In が判例のグラフしか見ないので何も出なかった
+-   def: page
+    name: LawTerm
+    type: http://lod4all.net/law/ontology/Term
+    gadget:
+        - LawTermProfile
+        - LawTermDefinition
+        - LawTermCaseLaw
+        - LawTermClause
+-   def: page
+    name: LawKeyword
+    type: http://lod4all.net/law/ontology/Keyword
+    gadget:
+        - LawTermProfile
+        - LawTermDefinition
+        - LawTermCaseLaw
+        - LawTermClause
 -   def: page
     name: Topic
     type: http://ds.rois.ac.jp/caselaw/ontology/Topic
@@ -666,6 +684,111 @@
               label: 条項
               link: clause
               width: 220
+-   def: gadget
+    name: LawTermProfile
+    title: 法令の語
+    # 法令の語の名前と、DBpedia の同じ名前の項目（term2dbpedia.ttl の rdfs:seeAlso）。法令のデータは判例のグラフの外にもあるので、グラフを限らない
+    get:
+        type: sparql
+        src: |
+            select ?label ?seealso where {
+                $uri rdfs:label ?label .
+                OPTIONAL {$uri rdfs:seeAlso ?seealso}
+            } limit 5
+    show:
+        type: vtable
+        columns:
+            - id: label
+              label: 語
+              width: 100
+            - id: seealso
+              label: 関連する項目（DBpedia）
+              type: directlink
+-   def: gadget
+    name: LawTermDefinition
+    title: この語を定義している法令の規定
+    # 法令の定義規定（defword.ttl の lawo:Definition）と、その定義を使っている箇所の数（refterm.ttl の lawo:ReferTerm）。
+    # 同じ語でも法令ごとに意味が違うので、法令・条項ごとに出す
+    get:
+        type: sparql
+        src: |
+            select ?body ?clause ?clauselabel ?law ?lawlabel (count(distinct ?ref) as ?nref) where {
+                ?b lawp:term $uri ; lawp:body ?body .
+                ?def oa:hasBody ?b ; oa:hasTarget ?tgt .
+                ?tgt oa:hasSource ?s .
+                ?s lawp:clause ?clause ; lawp:law ?law .
+                OPTIONAL {?clause rdfs:label ?clauselabel . FILTER (CONTAINS(STR(?clauselabel), "第"))}
+                OPTIONAL {?law rdfs:label ?lawlabel}
+                OPTIONAL {?ref a lawo:ReferTerm ; oa:hasBody ?def}
+            } group by ?body ?clause ?clauselabel ?law ?lawlabel
+            order by desc(?nref) ?lawlabel ?clause
+            limit 200
+    show:
+        type: htable
+        columns:
+            - id: lawlabel
+              label: 法令
+              link: law
+              width: 200
+            - id: clauselabel
+              label: 条項
+              link: clause
+              width: 160
+            - id: body
+              label: 定義（2022年10月の版）
+              width: 420
+            - id: nref
+              label: この定義を使う箇所
+              width: 80
+-   def: gadget
+    name: LawTermCaseLaw
+    title: 判例のターム
+    # 同じ文字列の判例のターム（caselaw:<語>）と、それを含む判決文書の数。判例のタームのページから判例へたどれる
+    get:
+        type: sparql
+        src: |
+            select ?term (count(distinct ?doc) as ?ndoc) where {
+                $uri rdfs:label ?label .
+                ?term a caselawo:Term ; rdfs:label ?label .
+                OPTIONAL { graph <http://ds.rois.ac.jp/caselaw/> { ?doc dcterms:subject ?term } }
+            } group by ?term
+    show:
+        type: htable
+        columns:
+            - id: term
+              label: 判例のターム
+              type: link
+              display: localname
+              width: 200
+            - id: ndoc
+              label: この語を含む判例の数
+              width: 120
+-   def: gadget
+    name: LawTermClause
+    title: この語が特徴的に現れる条
+    # 法令の条の特徴語（extracted.ttl の lawo:ExtractedWord。lawp:score の大きい順）
+    get:
+        type: sparql
+        src: |
+            select ?clause ?clauselabel ?law ?lawlabel ?score where {
+                ?x lawp:word $uri ; lawp:at ?clause ; lawp:score ?score .
+                OPTIONAL {?clause rdfs:label ?clauselabel}
+                OPTIONAL {?clause lawp:law ?law . OPTIONAL {?law rdfs:label ?lawlabel}}
+            } order by desc(?score) limit 100
+    show:
+        type: htable
+        columns:
+            - id: lawlabel
+              label: 法令
+              link: law
+              width: 220
+            - id: clauselabel
+              label: 条
+              link: clause
+              width: 160
+            - id: score
+              label: 特徴の強さ
+              width: 80
 -   def: gadget
     name: Keyword
     # 論点キーワード・事案キーワード（hanrei の src/keywords.py の keywords.ttl。2026.10.16 試作）。
