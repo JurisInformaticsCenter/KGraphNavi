@@ -166,6 +166,63 @@ def get_column_href(column, record):
 
     return replace_variables(href, record)
 
+DURATION_RE = re.compile(r"^P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)W)?(?:(\d+)D)?$")
+
+
+def format_duration(value):
+    """xsd:duration（P2Y6M・P30D）を「2年6月」「30日」にする。形が違えばそのまま（2026.11.7）"""
+    text = re.sub(r"T(?:0+H)?(?:0+M)?(?:0+(?:\.0+)?S)?$", "", str(value or "").strip())   # 時刻の部分が0なら外す
+    text = re.sub(r"(?<=[PYM])0+[YMWD]", "", text).replace("P0Y", "P") if re.search(r"[1-9]", text) else text
+    m = DURATION_RE.match(text)
+    if not m or not any(m.groups()):
+        return value
+    units = ("年", "月", "週", "日")
+    return "".join(f"{n}{u}" for n, u in zip(m.groups(), units) if n)
+
+
+def format_number(value):
+    """数を3桁ごとにカンマで区切る（30000 → 30,000）。数でなければそのまま（2026.11.7）"""
+    try:
+        f = float(str(value))
+    except (TypeError, ValueError):
+        return value
+    return f"{int(f):,}" if f == int(f) else f"{f:,}"
+
+
+def format_months(value):
+    """月数（30、24.5）を「2年6月」「2年」「5月」にする。数でなければそのまま（2026.11.7）"""
+    try:
+        n = round(float(str(value)))
+    except (TypeError, ValueError):
+        return value
+    y, m = divmod(n, 12)
+    return (f"{y}年" if y else "") + (f"{m}月" if m or not y else "")
+
+
+def format_days(value):
+    """日数（110）を「110日」にする"""
+    try:
+        return f"{int(float(str(value))):,}日"
+    except (TypeError, ValueError):
+        return value
+
+
+def format_yen(value):
+    """金額（3000000）を「3,000,000円」にする"""
+    v = format_number(value)
+    return f"{v}円" if v != value or str(value).isdigit() else value
+
+
+DISPLAY_FORMATS = {
+    "months": format_months,
+    "days": format_days,
+    "yen": format_yen,
+    "localname": get_localname,
+    "duration": format_duration,
+    "number": format_number,
+}
+
+
 def get_item_data(column, record):
     """1つのcolumnについて表示用セル情報を作成する。"""
     key = column["id"]
@@ -183,11 +240,12 @@ def get_item_data(column, record):
     else:
         value = get_value(data)
     # displayによる変換
-    if column.get("display") == "localname":
+    fmt = DISPLAY_FORMATS.get(column.get("display"))
+    if fmt and value not in (None, ""):
         if isinstance(value, list):
-            value = [get_localname(v) for v in value]
+            value = [fmt(v) for v in value]
         else:
-            value = get_localname(value)
+            value = fmt(value)
     cell = {
         "value": value,
         "type": item_type,

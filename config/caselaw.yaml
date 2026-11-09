@@ -69,40 +69,74 @@
         prism: "http://prismstandard.org/namespaces/basic/2.0/"
         skos: "http://www.w3.org/2004/02/skos/core#"
         time: "http://www.w3.org/2006/time#"
+        qudt: "http://qudt.org/schema/qudt/"
         churoio: "http://ds.rois.ac.jp/churoi/ontology/"
         churoip: "http://ds.rois.ac.jp/churoi/property/"
 -   sample:
-        search:
-            - 宮川美津子
-        resource:
-            - http://ds.rois.ac.jp/caselaw/resource/D020518,休職処分取消事件
-            - http://ds.rois.ac.jp/caselaw/resource/C昭和62あ1351,ロッキード事件
-            - http://ds.rois.ac.jp/caselaw/resource/C平成7合わ141,地下鉄サリン事件（事件番号。通称・触れている記事のある例）
-            - http://ds.rois.ac.jp/caselaw/resource/D091345,首都圏建設アスベスト神奈川訴訟（第２陣）控訴審（原審・上告審のある判例）
-            - http://ds.rois.ac.jp/caselaw/resource/D091418,特許権侵害差止等請求控訴事件（知財高裁。原審・上告審のある判例）
-            - http://ds.rois.ac.jp/caselaw/resource/D092738,公職選挙法違反被告事件（大阪高裁。原審・上告審のある判例）
-            - http://ds.rois.ac.jp/caselaw/resource/D085620,漁業協同組合の理事会の議決（論点・事案キーワードの試作）
-            - http://ds.rois.ac.jp/caselaw/resource/D086645,ベンゾジアゼピン系薬物の医療過誤（論点・事案キーワードの試作。判示事項なし）
-            - http://ds.rois.ac.jp/caselaw/resource/休職,休職（ターム。下位の起訴休職などをキーワードに持つ判例）
-            - http://ds.rois.ac.jp/caselaw/resource/尾島明,尾島明（裁判官）
-            - http://ds.rois.ac.jp/caselaw/resource/平木正洋,平木正洋（裁判官）
-            - http://ds.rois.ac.jp/caselaw/resource/富士通株式会社,富士通株式会社
-            - http://lod4all.net/law/resource/332AC0000000026_70-4,租税特別措置法第七十条の四
-            - http://ds.rois.ac.jp/caselaw/resource/パロディー写真,パロディー写真
-            - http://ds.rois.ac.jp/caselaw/ontology/CaseCategory_配チ,配偶者暴力に関する保護命令事件
-            - http://ds.rois.ac.jp/caselaw/resource/Topic_進歩性,トピック「特許の進歩性」（条と概念の語で集めた判例）
-            - http://ds.rois.ac.jp/caselaw/ontology/Case,事件（クラス）
-            - http://ds.rois.ac.jp/caselaw/ontology/CaseLawDocument,判決文書（クラス）
-        collection:
-            - http://ds.rois.ac.jp/caselaw/ontology/CaseLawDocument,判決文書
-            - PdfStatus,判決文書のPDFの状況
-            - KeywordCheck,判例のキーワード（論点・事案。試作）
-            - http://ds.rois.ac.jp/caselaw/ontology/SeparateOpinion,個別意見（意見の多い裁判官の順位表あり）
-            - http://ds.rois.ac.jp/caselaw/ontology/Topic,トピック（条・法令と概念の語で集めた判例のコレクション。試作）
-            - http://ds.rois.ac.jp/caselaw/ontology/Case,事件
+        # トップ画面。見出しごとのまとまり（2026.11.8 整理）
+        sections:
+            -   title: 判例を探す
+                describe: 判決文書・裁判の一覧（ファセットで絞り込み）と、語での検索
+                collection:
+                    - CaseLawDocuments,判決文書
+                    - Trials,裁判
+                    - http://ds.rois.ac.jp/caselaw/ontology/Case,事件
+                search:
+                    - 宮川美津子
+            -   title: 判例の例
+                describe: 判例のページで見られるもの（原審・上告審、量刑、通称・記事など）
+                resource:
+                    - http://ds.rois.ac.jp/caselaw/resource/D020518,休職処分取消事件
+                    - http://ds.rois.ac.jp/caselaw/resource/D091345,首都圏建設アスベスト神奈川訴訟（第２陣）控訴審 — 原審・上告審
+                    - http://ds.rois.ac.jp/caselaw/resource/D091418,特許権侵害差止等請求控訴事件（知財高裁） — 原審・上告審
+                    - http://ds.rois.ac.jp/caselaw/resource/D092738,公職選挙法違反被告事件（大阪高裁） — 原審・上告審
+                    - http://ds.rois.ac.jp/caselaw/resource/D022174,刑事事件（被告人複数） — 量刑
+                    - http://ds.rois.ac.jp/caselaw/resource/D085620,漁業協同組合の理事会の議決 — 論点・事案キーワード
+                    - http://ds.rois.ac.jp/caselaw/resource/C昭和62あ1351,ロッキード事件 — 事件番号
+                    - http://ds.rois.ac.jp/caselaw/resource/C平成7合わ141,地下鉄サリン事件 — 事件番号・通称・記事
+            -   title: 分類から探す
+                describe: 分野（事実・社会問題）・法的論点・手続の3つの軸と、トピック
+                resource:
+                    - http://ds.rois.ac.jp/caselaw/ontology/分野_労働・職場,分野「労働・職場」
+                    - http://ds.rois.ac.jp/caselaw/ontology/論点_労働法,法的論点「労働法」
+                    - http://ds.rois.ac.jp/caselaw/ontology/手続_行政訴訟,手続「行政訴訟」
+                    - http://ds.rois.ac.jp/caselaw/ontology/審級_上告審,審級「上告審」
+                    - http://ds.rois.ac.jp/caselaw/ontology/CaseCategory_配チ,事件記号「配チ」（配偶者暴力に関する保護命令事件）
+                collection:
+                    - Topics,トピック（条・法令と概念の語で集めた判例）
+            -   title: 分析する
+                describe: 判例を横断して比べる・数える
+                collection:
+                    - PrecedentChanges,判例変更（大法廷の判決と変更された判例）
+                    - SeparateOpinions,個別意見（裁判官ごとの順位表）
+                resource:
+                    - http://ds.rois.ac.jp/caselaw/resource/Topic_進歩性,トピック「特許の進歩性」
+            -   title: 人・組織・法令・用語
+                describe: 裁判官・当事者、判例が参照する法令の条、判例と法令の用語
+                resource:
+                    - http://ds.rois.ac.jp/caselaw/resource/尾島明,尾島明（裁判官）
+                    - http://ds.rois.ac.jp/caselaw/resource/平木正洋,平木正洋（裁判官）
+                    - http://ds.rois.ac.jp/caselaw/resource/富士通株式会社,富士通株式会社（当事者）
+                    - http://lod4all.net/law/resource/332AC0000000026_70-4,租税特別措置法第七十条の四
+                    - http://ds.rois.ac.jp/caselaw/resource/休職,休職（用語。下位の語をキーワードに持つ判例も）
+                    - http://ds.rois.ac.jp/caselaw/resource/パロディー写真,パロディー写真（用語）
+            -   title: データの品質・試作
+                describe: 元データ（PDF）の状況と、作成中の機能
+                collection:
+                    - PdfStatus,判決文書のPDFの状況
+                    - PdfProblems,問題のあるPDF（誤りの種類・作成ツール別）
+                    - KeywordCheck,判例のキーワード（論点・事案。試作）
+                resource:
+                    - http://ds.rois.ac.jp/caselaw/resource/D086645,判示事項の無い判例のキーワード（試作）
+                    - http://ds.rois.ac.jp/caselaw/ontology/CaseLawDocument,判決文書（クラス）
+                    - http://ds.rois.ac.jp/caselaw/ontology/Case,事件（クラス）
 -   priority:
         - http://ds.rois.ac.jp/caselaw/ontology/Person
         - http://ds.rois.ac.jp/caselaw/ontology/CaseClass
+        - http://ds.rois.ac.jp/caselaw/ontology/LegalField      # skos:Concept（条見出しのページ）より先に（2026.11.8）
+        - http://ds.rois.ac.jp/caselaw/ontology/LegalIssue
+        - http://ds.rois.ac.jp/caselaw/ontology/Procedure
+        - http://ds.rois.ac.jp/caselaw/ontology/Instance
 -   def: page
     name: Case
     type: http://ds.rois.ac.jp/caselaw/ontology/Case
@@ -125,6 +159,8 @@
     type: http://ds.rois.ac.jp/caselaw/ontology/Trial
     gadget:
         - CaseLawInfo
+        - PrecedentChange
+        - DocAxes
         - AppealCaseLaw
         - Keyword
         - DocIssues
@@ -143,6 +179,8 @@
     type: http://ds.rois.ac.jp/caselaw/ontology/Judgment
     gadget:
         - CaseLawInfo
+        - PrecedentChange
+        - DocAxes
         - AppealCaseLaw
         - Keyword
         - DocIssues
@@ -155,12 +193,16 @@
         - Patent
         - RefCase
         - Punishment
+        - SentenceSummary
+        - SentencePosition
         - SimilarCaseLaw
 -   def: page
     name: CaseLawDocument
     type: http://ds.rois.ac.jp/caselaw/ontology/CaseLawDocument
     gadget:
         - CaseLawInfo
+        - PrecedentChange
+        - DocAxes
         - AppealCaseLaw
         - Keyword
         - DocIssues
@@ -171,6 +213,9 @@
         - Term
         - Legislation
         - RefCase
+        - Punishment
+        - SentenceSummary
+        - SentencePosition
         - CaseLawCitingThis
         - Patent
         - DocInfo
@@ -182,14 +227,21 @@
         - Involved
         - PersonOpinion
         - Profile
+# 語のページ（判例のターム caselawo:Term・法令の定義語 lawo:Term・特徴語 lawo:Keyword・条見出し skos:Concept）。
+# 裁判と判決文書のページと同じく、エンティティは別のままで、どれから開いても同じガジェットを出す。
+# 各ガジェットは focus で、ラベルが同じ判例のターム・法令の語へ移ってから問い合わせる（2026.11.5）
 -   def: page
     name: Term
     type: http://ds.rois.ac.jp/caselaw/ontology/Term
     gadget:
-        - Profile
+        - TermOverview
+        - TermDescription
+        - LawTermDefinition
+        - LawConceptClause
+        - LawTermClause
         - TermRelation
-        - LawDefinition
         - CaseLawWithThisKeyword
+        - LawConceptCaseLaw
         - CaseLawContainingThisTerm
 # 法令の語（law:<語>。~/nii/law の defword.ttl の定義語 lawo:Term、extracted.ttl の特徴語 lawo:Keyword。2026.11.3）。
 # 以前は type: '*' のページになり、Out・In が判例のグラフしか見ないので何も出なかった
@@ -197,24 +249,61 @@
     name: LawTerm
     type: http://lod4all.net/law/ontology/Term
     gadget:
-        - LawTermProfile
+        - TermOverview
+        - TermDescription
         - LawTermDefinition
-        - LawTermCaseLaw
+        - LawConceptClause
         - LawTermClause
+        - TermRelation
+        - CaseLawWithThisKeyword
+        - LawConceptCaseLaw
+        - CaseLawContainingThisTerm
+# 判例の分野（caselawo:分野_<大>_<中>_<小>。hanrei の src/field.py の field.ttl・field_tags.ttl。大・中・小分類の SKOS。2026.11.5）。
+# skos:Concept でもあるが、このページを優先する（ページのある種類の中から選ぶ。kgraphnavi/views.py）
+-   def: page
+    name: LegalField
+    type: http://ds.rois.ac.jp/caselaw/ontology/LegalField
+    gadget:
+        - FieldInfo
+        - FieldHierarchy
+        - FieldTopics
+        - CaseLawInThisField
+        - CaseLawInThisFieldByTopic
+# 法令の条見出しの概念（law:<見出し>。~/nii/law の toc2rdf.ttl の skos:Concept。lawo:Regulation の lawp:related。2026.11.5）。
+# 「株主提案権」は会社法303条〜305条の見出し。lawo:Keyword でもあるが、Virtuoso に extracted.ttl が無いと skos:Concept だけになる
+-   def: page
+    name: LawConcept
+    type: http://www.w3.org/2004/02/skos/core#Concept
+    gadget:
+        - TermOverview
+        - TermDescription
+        - LawTermDefinition
+        - LawConceptClause
+        - LawTermClause
+        - TermRelation
+        - CaseLawWithThisKeyword
+        - LawConceptCaseLaw
+        - CaseLawContainingThisTerm
 -   def: page
     name: LawKeyword
     type: http://lod4all.net/law/ontology/Keyword
     gadget:
-        - LawTermProfile
+        - TermOverview
+        - TermDescription
         - LawTermDefinition
-        - LawTermCaseLaw
+        - LawConceptClause
         - LawTermClause
+        - TermRelation
+        - CaseLawWithThisKeyword
+        - LawConceptCaseLaw
+        - CaseLawContainingThisTerm
 -   def: page
     name: Topic
     type: http://ds.rois.ac.jp/caselaw/ontology/Topic
     gadget:
         - Profile
         - TopicDefinition
+        - TopicField
         - TopicHierarchy
         - CaseLawInThisTopic
 -   def: page
@@ -684,6 +773,76 @@
               label: 条項
               link: clause
               width: 220
+# 語の概要: この語が、判例のターム・論点事案キーワード・法令の定義語・特徴語・条見出しのどれにあたるか（ラベルで結ぶ。2026.11.5）
+-   def: gadget
+    name: TermOverview
+    title: この語（判例と法令）
+    get:
+        type: sparql
+        src: |
+            SELECT ?kind ?item ?ext (COUNT(DISTINCT ?x) AS ?n) WHERE {
+                $uri rdfs:label ?label .
+                { ?item a caselawo:Term ; rdfs:label ?label . BIND(0 AS ?ord) BIND("判例のターム（この語を含む判例）" AS ?kind)
+                  OPTIONAL { graph <http://ds.rois.ac.jp/caselaw/> { ?x dcterms:subject ?item } } }
+                UNION { ?item a caselawo:Term ; rdfs:label ?label . BIND(1 AS ?ord) BIND("論点・事案キーワード（判例）" AS ?kind)
+                  graph <http://ds.rois.ac.jp/caselaw/> { ?x caselawp:論点キーワード|caselawp:事案キーワード ?item } }
+                UNION { ?item a lawo:Term ; rdfs:label ?label . BIND(2 AS ?ord) BIND("法令の定義語（定義規定）" AS ?kind)
+                  OPTIONAL { ?b lawp:term ?item . ?x oa:hasBody ?b } }
+                UNION { ?item a skos:Concept ; rdfs:label ?label . FILTER(STRSTARTS(STR(?item), "http://lod4all.net/law/resource/"))
+                  BIND(3 AS ?ord) BIND("法令の条見出し（条）" AS ?kind)
+                  OPTIONAL { ?x lawp:related ?item } }
+                UNION { ?item a lawo:Keyword ; rdfs:label ?label . BIND(4 AS ?ord) BIND("法令の特徴語（条）" AS ?kind)
+                  OPTIONAL { ?x lawp:word ?item } }
+                UNION { ?s rdfs:label ?label ; rdfs:seeAlso ?ext . VALUES ?st { lawo:Term lawo:Keyword } ?s a ?st .
+                  BIND(5 AS ?ord) BIND("関連する項目（DBpedia）" AS ?kind) }
+                UNION { ?s a caselawo:Term ; rdfs:label ?label ; owl:sameAs ?ext . BIND(5 AS ?ord) BIND("関連する項目（DBpedia）" AS ?kind) }
+            } GROUP BY ?ord ?kind ?item ?ext ORDER BY ?ord ?item
+    show:
+        type: htable
+        columns:
+            - id: kind
+              type: literal
+              label: この語にあたるもの
+              width: 240
+            - id: item
+              type: link
+              display: localname
+              label: 項目
+              width: 200
+            - id: n
+              type: literal
+              label: 数
+              width: 80
+            - id: ext
+              type: directlink
+              label: 外部
+              width: 220
+# 語の説明: DBpedia（Wikipedia）の概要（hanrei の src/wikimatch.py の dbpedia.ttl。判例のタームの rdfs:comment と owl:sameAs）。
+# 法令の語のページでも、同じラベルの判例のタームのものを出す。Wikipedia の説明なので、法令上の意味とは違うことがある（2026.11.5）
+-   def: gadget
+    name: TermDescription
+    title: 説明（Wikipedia）
+    get:
+        type: sparql
+        src: |
+            select ?abstract ?dbp ?wikipedia where {
+                $uri rdfs:label ?label .
+                ?t a caselawo:Term ; rdfs:label ?label .
+                graph <http://ds.rois.ac.jp/caselaw/> { ?t rdfs:comment ?abstract . OPTIONAL { ?t owl:sameAs|rdfs:seeAlso ?dbp } }
+                BIND (REPLACE(STR(?dbp), "^https?://ja.dbpedia.org/resource/", "") as ?name)
+                BIND (IF(BOUND(?dbp), CONCAT("https://ja.wikipedia.org/wiki/", ENCODE_FOR_URI(?name)), ?unbound) as ?wikipedia)
+            } limit 1
+    show:
+        type: vtable
+        columns:
+            - id: abstract
+              label: 概要（Wikipedia。法令上の意味とは違うことがある）
+            - id: wikipedia
+              label: Wikipedia
+              type: directlink
+            - id: dbp
+              label: DBpedia
+              type: directlink
 -   def: gadget
     name: LawTermProfile
     title: 法令の語
@@ -705,22 +864,91 @@
               label: 関連する項目（DBpedia）
               type: directlink
 -   def: gadget
+    name: LawConceptClause
+    # 語のページで共通。同じラベルの法令の語（law:<語>。定義語・特徴語・条見出し）について（2026.11.5）
+    focus: '$uri rdfs:label ?l . ?new rdfs:label ?l . VALUES ?t { lawo:Term lawo:Keyword skos:Concept } ?new a ?t . FILTER(STRSTARTS(STR(?new), "http://lod4all.net/law/resource/"))'
+    title: この見出しの条
+    # 条見出し（lawp:caption）がこの概念の条（toc2rdf.ttl: law:reg_<条> lawp:realize <条> ; lawp:related <概念>）。
+    # 共通見出し（前の条の見出しを受け継ぐ条。commoncaption.ttl）も出す
+    get:
+        type: sparql
+        src: |
+            # 条のラベルは「会社法304条」「会社法第三百四条」の2つがあるので、条ごとに1行にする（MIN で算用数字のほう。2026.11.5）
+            select ?clause (MIN(STR(?cl)) AS ?clauselabel) ?law (MIN(STR(?ll)) AS ?lawlabel) ?kind where {
+                { ?reg lawp:related $uri ; lawp:realize ?clause . BIND("見出し" AS ?kind) }
+                UNION
+                { $uri rdfs:label ?label . ?clause lawp:commonCaption ?label . BIND("共通見出し" AS ?kind) }
+                OPTIONAL {?clause rdfs:label ?cl}
+                OPTIONAL {?clause lawp:law ?law . OPTIONAL {?law rdfs:label ?ll}}
+            } group by ?clause ?law ?kind
+            order by ?lawlabel ?clause
+            limit 200
+    show:
+        type: htable
+        columns:
+            - id: lawlabel
+              label: 法令
+              link: law
+              width: 220
+            - id: clauselabel
+              label: 条
+              link: clause
+              width: 160
+            - id: kind
+              label: 見出しの種類
+              width: 100
+-   def: gadget
+    name: LawConceptCaseLaw
+    # 語のページで共通。同じラベルの法令の語（law:<語>。定義語・特徴語・条見出し）について（2026.11.5）
+    focus: '$uri rdfs:label ?l . ?new rdfs:label ?l . VALUES ?t { lawo:Term lawo:Keyword skos:Concept } ?new a ?t . FILTER(STRSTARTS(STR(?new), "http://lod4all.net/law/resource/"))'
+    title: この見出しの条を中心に参照する判例
+    collection:
+        title: この見出しの条を中心に参照する判決文書
+        var: doc
+        class: caselawo:CaseLawDocument
+        label: 判決文書をコレクションとして表示
+    get:
+        type: sparql
+        src: |
+            # 条のラベルが2つ（算用数字・漢数字）あるので、判例と条ごとに1行（2026.11.5）
+            select ?doc ?label (MIN(STR(?cl)) AS ?clauselabel) where {
+                ?reg lawp:related $uri ; lawp:realize ?clause .
+                OPTIONAL {?clause rdfs:label ?cl}
+                graph <http://ds.rois.ac.jp/caselaw/> { ?doc caselawp:reflawCore ?clause ; rdfs:label ?label . }
+            } group by ?doc ?label ?clause
+            order by ?label
+            limit 300
+    show:
+        type: htable
+        columns:
+            - id: label
+              label: 判例（事件名）
+              link: doc
+              width: 320
+            - id: clauselabel
+              label: 参照している条
+              width: 160
+-   def: gadget
     name: LawTermDefinition
+    # 語のページで共通。同じラベルの法令の語（law:<語>。定義語・特徴語・条見出し）について（2026.11.5）
+    focus: '$uri rdfs:label ?l . ?new rdfs:label ?l . VALUES ?t { lawo:Term lawo:Keyword skos:Concept } ?new a ?t . FILTER(STRSTARTS(STR(?new), "http://lod4all.net/law/resource/"))'
     title: この語を定義している法令の規定
     # 法令の定義規定（defword.ttl の lawo:Definition）と、その定義を使っている箇所の数（refterm.ttl の lawo:ReferTerm）。
     # 同じ語でも法令ごとに意味が違うので、法令・条項ごとに出す
     get:
         type: sparql
         src: |
-            select ?body ?clause ?clauselabel ?law ?lawlabel (count(distinct ?ref) as ?nref) where {
+            # 条項のラベルは「会社法2条第1項」（判例のデータ）と「会社法第二条第一項」（法令のデータ）の2つがあるので、
+            # 定義・条項ごとに1行にする（MIN で算用数字のほう。2026.11.5）
+            select ?body ?clause (MIN(STR(?cl)) AS ?clauselabel) ?law (MIN(STR(?ll)) AS ?lawlabel) (count(distinct ?ref) as ?nref) where {
                 ?b lawp:term $uri ; lawp:body ?body .
                 ?def oa:hasBody ?b ; oa:hasTarget ?tgt .
                 ?tgt oa:hasSource ?s .
                 ?s lawp:clause ?clause ; lawp:law ?law .
-                OPTIONAL {?clause rdfs:label ?clauselabel . FILTER (CONTAINS(STR(?clauselabel), "第"))}
-                OPTIONAL {?law rdfs:label ?lawlabel}
+                OPTIONAL {?clause rdfs:label ?cl . FILTER (CONTAINS(STR(?cl), "第"))}
+                OPTIONAL {?law rdfs:label ?ll}
                 OPTIONAL {?ref a lawo:ReferTerm ; oa:hasBody ?def}
-            } group by ?body ?clause ?clauselabel ?law ?lawlabel
+            } group by ?body ?clause ?law
             order by desc(?nref) ?lawlabel ?clause
             limit 200
     show:
@@ -765,16 +993,20 @@
               width: 120
 -   def: gadget
     name: LawTermClause
+    # 語のページで共通。同じラベルの法令の語（law:<語>。定義語・特徴語・条見出し）について（2026.11.5）
+    focus: '$uri rdfs:label ?l . ?new rdfs:label ?l . VALUES ?t { lawo:Term lawo:Keyword skos:Concept } ?new a ?t . FILTER(STRSTARTS(STR(?new), "http://lod4all.net/law/resource/"))'
     title: この語が特徴的に現れる条
     # 法令の条の特徴語（extracted.ttl の lawo:ExtractedWord。lawp:score の大きい順）
     get:
         type: sparql
         src: |
-            select ?clause ?clauselabel ?law ?lawlabel ?score where {
-                ?x lawp:word $uri ; lawp:at ?clause ; lawp:score ?score .
-                OPTIONAL {?clause rdfs:label ?clauselabel}
-                OPTIONAL {?clause lawp:law ?law . OPTIONAL {?law rdfs:label ?lawlabel}}
-            } order by desc(?score) limit 100
+            # 条のラベルが2つ（算用数字・漢数字）あるので、条ごとに1行（2026.11.5）
+            select ?clause (MIN(STR(?cl)) AS ?clauselabel) ?law (MIN(STR(?ll)) AS ?lawlabel) (MAX(?sc) AS ?score) where {
+                ?x lawp:word $uri ; lawp:at ?clause ; lawp:score ?sc .
+                OPTIONAL {?clause rdfs:label ?cl}
+                OPTIONAL {?clause lawp:law ?law . OPTIONAL {?law rdfs:label ?ll}}
+            } group by ?clause ?law
+            order by desc(?score) limit 100
     show:
         type: htable
         columns:
@@ -884,32 +1116,775 @@
               label: 解説（Wikibooks）
               type: directlink
               width: 130
+# 量刑（hanrei の src/punishment.py の punishment.ttl。2026.11.7 直す）。
+# 裁判（caselaw:J…）caselawp:judgment [被告人ごとの主文: caselawp:defendant・caselawp:punishment・caselawp:hasSuspendedSentence・
+# caselawp:ancillaryDisposition・caselawp:pretrialDetentionCredit・caselawp:verdict]。判決文書のページからは caselawp:id でたどる。
+# 以前は caselawp:punishment を裁判に直接付いたものとして探していたので、何も出なかった
 -   def: gadget
     name: Punishment
+    title: 量刑（主文）
     get:
         type: sparql
         src: |
-            select ?ptype ?duration ?suspend where {
+            # 刑期は数（caselawp:termMonths・termDays・suspendedMonths・pretrialDays）を使い、表示で「5月」「2年」「110日」にする。
+            # Virtuoso では xsd:duration（P5M）の値が単位の無い数になり、5年か5月か分からなかった（2026.11.7）。
+            # OPTIONAL は入れ子にせず、BIND で選ぶ（Virtuoso で外の変数を見る OPTIONAL の値が消えることがある）
+            select ?defendant ?kind ?kindlabel ?months ?days ?amount ?suspend ?ord where {
             graph <http://ds.rois.ac.jp/caselaw/> {
                 $uri caselawp:id ?id .
-                ?judgmentid a caselawo:Judgment; caselawp:id ?id .
-                ?judgmentid caselawp:punishment ?punishment .
-                ?punishment a ?ptype .
-                OPTIONAL{?punishment time:hasDurationDescription ?duration}
-                OPTIONAL{?punishment caselawp:hasSuspendedSentence ?suspend}
-            }}
-    show: 
+                ?j a caselawo:Judgment ; caselawp:id ?id ; caselawp:judgment ?jd .
+                OPTIONAL { ?jd caselawp:defendant ?defendant }
+                {
+                    ?jd caselawp:punishment ?p . ?p a ?kind . BIND(0 AS ?ord)
+                    OPTIONAL { ?p caselawp:termMonths ?months }
+                    OPTIONAL { ?p caselawp:termDays ?days }
+                    OPTIONAL { ?p caselawp:amount ?q . ?q qudt:numericValue ?amount }
+                    OPTIONAL { ?jd caselawp:suspendedMonths ?s0 }
+                    BIND(IF(BOUND(?months), ?s0, ?unbound) AS ?suspend)
+                } UNION {
+                    # 執行猶予だけ別の文で、まとめて言い渡したもの
+                    ?jd caselawp:suspendedMonths ?suspend .
+                    FILTER NOT EXISTS { ?jd caselawp:punishment ?p1 }
+                    BIND(caselawo:執行猶予 AS ?kind) BIND(3 AS ?ord)
+                } UNION {
+                    ?jd caselawp:verdict ?kind . BIND(1 AS ?ord)
+                } UNION {
+                    ?jd caselawp:ancillaryDisposition ?kind . BIND(2 AS ?ord)
+                    OPTIONAL { ?jd caselawp:pretrialDays ?c0 }
+                    BIND(IF(?kind = caselawo:未決勾留日数算入, ?c0, ?unbound) AS ?days)
+                }
+            }
+                OPTIONAL { ?kind rdfs:label ?kl }
+                BIND(COALESCE(?kl, ?kind) AS ?kindlabel)
+            } order by ?defendant ?ord ?kindlabel
+    show:
         type: htable
         columns:
-            - id: ptype
-              label: 刑罰
-              width: 120
-            - id: duration
+            - id: defendant
+              label: 被告人
+              width: 140
+            - id: kindlabel
+              label: 刑罰・処分
+              display: localname
+              width: 160
+            - id: months
               label: 刑期
-              width: 100
+              display: months
+              width: 90
+            - id: days
+              label: 日数
+              display: days
+              width: 80
+            - id: amount
+              label: 金額
+              display: yen
+              width: 110
             - id: suspend
               label: 執行猶予
+              display: months
+              width: 90
+-   def: gadget
+    name: facet_crime_name
+    get:
+        type: facet
+        name: crime_name
+        label: 罪名（事件名から）
+        predicate: caselawp:crimeName
+        value_type: literal
+        limit: 30
+        search: true
+    show:
+        type: facet
+-   def: gadget
+    name: facet_sentence_kind
+    get:
+        type: facet
+        name: sentence_kind
+        label: 量刑の種類
+        predicate: caselawp:sentenceKind
+        value_type: iri
+    show:
+        type: facet
+-   def: gadget
+    name: facet_sentence_months
+    get:
+        type: facet
+        kind: range
+        name: sentence_months
+        label: 刑期（月）
+        predicate: caselawp:sentenceMonths
+        datatype: integer
+        bins: 20
+    show:
+        type: facet
+-   def: gadget
+    name: facet_crime_count
+    get:
+        type: facet
+        kind: range
+        name: crime_count
+        label: 罪名の数（1 なら併合罪でない見込みが高い）
+        predicate: caselawp:crimeCount
+        datatype: integer
+        bins: 5
+    show:
+        type: facet
+-   def: gadget
+    name: facet_sentence_status
+    get:
+        type: facet
+        name: sentence_status
+        label: 量刑の確定の状況
+        predicate: caselawp:sentenceStatus
+        value_type: iri
+    show:
+        type: facet
+-   def: gadget
+    name: facet_penal_provision
+    get:
+        type: facet
+        name: penal_provision
+        label: 罰条（法令の適用で該当するとした条、または罪名から補った条）
+        predicate: caselawp:penalProvision|caselawp:penalProvisionByName
+        value_type: iri
+        limit: 30
+        search: true
+    show:
+        type: facet
+-   def: gadget
+    name: SentenceKindBar
+    title: 量刑の種類
+    get:
+        type: sparql
+        src: |
+            SELECT ?kind (COUNT(DISTINCT ?entity) AS ?count) WHERE {
+                $collection
+                ?entity caselawp:sentenceKind ?k .
+                ?k rdfs:label ?kind .
+            } GROUP BY ?kind ORDER BY DESC(?count)
+    show:
+        type: chart
+        chart: bar
+        labels: kind
+        dataset: count
+-   def: gadget
+    name: SentenceYearsBar
+    title: 実刑の刑期の分布（年。3 は3年以上4年未満。被告人が複数なら最も長い刑期。上訴審で破棄された判決は量刑の確定の状況で外せる）
+    get:
+        type: sparql
+        src: |
+            SELECT ?years (COUNT(DISTINCT ?entity) AS ?count) WHERE {
+                $collection
+                ?entity caselawp:sentenceKind caselawo:量刑_実刑 ; caselawp:sentenceMonths ?m .
+                BIND(FLOOR(?m / 12) AS ?years)
+            } GROUP BY ?years ORDER BY ?years
+    show:
+        type: chart
+        chart: bar
+        labels: years
+        dataset: count
+-   def: gadget
+    name: SentenceSuspendedYearsBar
+    title: 執行猶予付きの判決の刑期の分布（年）
+    get:
+        type: sparql
+        src: |
+            SELECT ?years (COUNT(DISTINCT ?entity) AS ?count) WHERE {
+                $collection
+                ?entity caselawp:sentenceKind caselawo:量刑_執行猶予 ; caselawp:sentenceMonths ?m .
+                BIND(FLOOR(?m / 12) AS ?years)
+            } GROUP BY ?years ORDER BY ?years
+    show:
+        type: chart
+        chart: bar
+        labels: years
+        dataset: count
+-   def: gadget
+    name: SentenceList
+    title: 量刑（刑期の長い順）
+    get:
+        type: sparql
+        page_size: 50
+        src: |
+            SELECT ?entity ?label ?date ?court ?crime ?kind ?months ?susp ?req ?status WHERE {
+                $collection
+                ?entity caselawp:sentenceKind ?k ; caselawp:id ?id ; rdfs:label ?label .
+                ?k rdfs:label ?kind .
+                OPTIONAL { ?entity caselawp:sentenceMonths ?months }
+                OPTIONAL { ?entity caselawp:suspendedMonths ?susp }
+                OPTIONAL { ?entity caselawp:requestedMonths ?req }
+                OPTIONAL { ?entity caselawp:crimeName ?crime }
+                OPTIONAL { ?entity caselawp:sentenceStatus ?st . ?st rdfs:label ?status }
+                OPTIONAL { ?j a caselawo:Judgment ; caselawp:id ?id ; caselawp:judgmentdate ?date }
+                OPTIONAL { ?t a caselawo:Trial ; caselawp:id ?id ; caselawp:court ?court }
+            } ORDER BY DESC(?months) ?label
+    show:
+        type: htable
+        group_by: entity
+        columns:
+            - id: label
+              label: 判例
+              link: entity
+              width: 260
+            - id: date
+              label: 判決日
+              width: 90
+            - id: court
+              label: 裁判所
+              type: link
+              display: localname
+              width: 140
+            - id: crime
+              label: 罪名
+              width: 160
+            - id: kind
+              label: 量刑
+              width: 80
+            - id: months
+              label: 刑期
+              display: months
+              width: 70
+            - id: susp
+              label: 執行猶予
+              display: months
+              width: 80
+            - id: req
+              label: 求刑
+              display: months
+              width: 70
+            - id: status
+              label: 確定の状況
               width: 100
+-   def: gadget
+    name: SentenceSummary
+    title: 量刑のまとめ（量刑の種類は被告人が複数なら最も重いもの。上訴を棄却した判決では、刑を言い渡した原審のもの）
+    get:
+        type: sparql
+        src: |
+            SELECT ?s ?slabel ?kind ?months ?susp ?fine ?reqtext ?crime ?penal ?penallabel ?status WHERE {
+            graph <http://ds.rois.ac.jp/caselaw/> {
+                $uri caselawp:id ?id .
+                ?doc a caselawo:CaseLawDocument ; caselawp:id ?id .
+                { ?doc caselawp:sentenceKind ?k . BIND(?doc AS ?s) }
+                UNION { ?doc caselawp:sentenceIn ?s . ?s caselawp:sentenceKind ?k . }
+                ?s rdfs:label ?slabel .
+                OPTIONAL { ?k rdfs:label ?kind }
+                OPTIONAL { ?s caselawp:sentenceMonths ?months }
+                OPTIONAL { ?s caselawp:suspendedMonths ?susp }
+                OPTIONAL { ?s caselawp:fineYen ?fine }
+                OPTIONAL { ?s caselawp:sentenceRequest ?reqtext }
+                OPTIONAL { ?s caselawp:crimeName ?crime }
+                OPTIONAL { ?s caselawp:penalProvision|caselawp:penalProvisionByName ?penal . OPTIONAL { ?penal rdfs:label ?penallabel } }
+                OPTIONAL { ?s caselawp:sentenceStatus ?st . ?st rdfs:label ?status }
+            }}
+    show:
+        type: htable
+        group_by: s
+        columns:
+            - id: slabel
+              label: 刑を言い渡した判決
+              link: s
+              width: 200
+            - id: kind
+              label: 量刑
+              width: 80
+            - id: months
+              label: 刑期
+              display: months
+              width: 70
+            - id: susp
+              label: 執行猶予
+              display: months
+              width: 80
+            - id: fine
+              label: 罰金
+              display: yen
+              width: 100
+            - id: reqtext
+              label: 求刑
+              width: 200
+            - id: crime
+              label: 罪名（同じ罪名の判決へ）
+              collection:
+                  class: caselawo:CaseLawDocument
+                  facet: crime_name
+              width: 160
+            - id: penallabel
+              label: 罰条
+              link: penal
+              width: 140
+            - id: status
+              label: 確定の状況
+              width: 100
+-   def: gadget
+    name: SentencePosition
+    title: 同じ罪名の判決（実刑・刑期の分かるもの。上訴審で破棄されたものを除く）の中での刑期
+    # 罪名ごとに、件数・この判決より短い／同じ／長い件数・最短・平均・最長。罪名が複数の判決（併合罪など）も入るので、目安として見る
+    get:
+        type: sparql
+        src: |
+            SELECT ?crime ?months (COUNT(DISTINCT ?o) AS ?n) (SUM(IF(?om < ?months, 1, 0)) AS ?shorter)
+                   (SUM(IF(?om = ?months, 1, 0)) AS ?same) (SUM(IF(?om > ?months, 1, 0)) AS ?longer)
+                   (MIN(?om) AS ?min) (ROUND(AVG(?om)) AS ?avg) (MAX(?om) AS ?max) WHERE {
+            graph <http://ds.rois.ac.jp/caselaw/> {
+                $uri caselawp:id ?id .
+                ?doc a caselawo:CaseLawDocument ; caselawp:id ?id .
+                { ?doc caselawp:sentenceKind ?k . BIND(?doc AS ?s) } UNION { ?doc caselawp:sentenceIn ?s }
+                ?s caselawp:sentenceKind caselawo:量刑_実刑 ; caselawp:sentenceMonths ?months ; caselawp:crimeName ?crime .
+                ?o caselawp:crimeName ?crime ; caselawp:sentenceKind caselawo:量刑_実刑 ; caselawp:sentenceMonths ?om .
+                FILTER NOT EXISTS { ?o caselawp:sentenceStatus caselawo:量刑_上訴審で破棄 }
+            }} GROUP BY ?crime ?months ORDER BY DESC(?n)
+    show:
+        type: htable
+        columns:
+            - id: crime
+              label: 罪名（同じ罪名の判決へ）
+              collection:
+                  class: caselawo:CaseLawDocument
+                  facet: crime_name
+              width: 180
+            - id: months
+              label: この判決の刑期
+              display: months
+              width: 90
+            - id: n
+              label: 件数
+              width: 60
+            - id: shorter
+              label: より短い
+              width: 70
+            - id: same
+              label: 同じ
+              width: 60
+            - id: longer
+              label: より長い
+              width: 70
+            - id: min
+              label: 最短
+              display: months
+              width: 60
+            - id: avg
+              label: 平均
+              display: months
+              width: 60
+            - id: max
+              label: 最長
+              display: months
+              width: 60
+# ---- 判例変更（hanrei の src/precedent.py の precedent_change.ttl。2026.11.7）----
+# 大法廷の判決の「…判例は、これを変更すべきものと認める」などの文と、変更された判例（データ中の判例に照合できたもの）
+-   def: gadget
+    name: PrecedentChange
+    title: 判例変更（この判決が変更した判例・この判例を変更した判決）
+    get:
+        type: sparql
+        src: |
+            SELECT ?rel ?other ?olabel ?odate ?stmt ?how ?ord WHERE {
+            graph <http://ds.rois.ac.jp/caselaw/> {
+                $uri caselawp:id ?id .
+                ?doc a caselawo:CaseLawDocument ; caselawp:id ?id .
+                {
+                    ?doc caselawp:overruledBy ?other . BIND("この判例を変更した判決" AS ?rel) BIND(0 AS ?ord)
+                    OPTIONAL { ?other caselawp:precedentChange ?pc . ?pc caselawp:statement ?stmt ; caselawp:how ?how }
+                } UNION {
+                    ?doc caselawp:precedentChange ?pc . ?pc caselawp:statement ?stmt ; caselawp:how ?how .
+                    OPTIONAL { ?doc caselawp:overrules ?other }
+                    BIND("この判決が変更した判例" AS ?rel) BIND(1 AS ?ord)
+                }
+                OPTIONAL { ?other rdfs:label ?olabel }
+                OPTIONAL { ?other caselawp:id ?oid . ?oj a caselawo:Judgment ; caselawp:id ?oid ; caselawp:judgmentdate ?odate }
+            }} ORDER BY ?ord ?odate
+    show:
+        type: htable
+        columns:
+            - id: rel
+              type: literal
+              label: 関係
+              width: 150
+            - id: olabel
+              label: 判例
+              link: other
+              width: 240
+            - id: odate
+              label: 判決日
+              width: 90
+            - id: stmt
+              label: 判例変更の文
+              width: 460
+            - id: how
+              label: 見つけ方
+              width: 70
+-   def: page
+    name: PrecedentChanges
+    type: collection
+    query: |
+        SELECT DISTINCT ?uri
+        WHERE {
+            ?uri a caselawo:CaseLawDocument ;
+                 caselawp:precedentChange ?pc .
+        }
+    sidebar:
+        - facet_year
+    tabs:
+        - label: 一覧
+          gadget:
+            - PrecedentChangeList
+-   def: gadget
+    name: PrecedentChangeList
+    title: 判例変更の一覧（新しい順。変更された判例が空なのは、データに無い判例か、事件番号の書かれていないもの）
+    get:
+        type: sparql
+        src: |
+            SELECT ?entity ?label ?date ?other ?olabel ?odate ?stmt WHERE {
+                $collection
+                ?entity caselawp:id ?id ; rdfs:label ?label ; caselawp:precedentChange ?pc .
+                ?pc caselawp:statement ?stmt .
+                OPTIONAL { ?j a caselawo:Judgment ; caselawp:id ?id ; caselawp:judgmentdate ?date }
+                OPTIONAL { ?entity caselawp:overrules ?other . ?other rdfs:label ?olabel .
+                           OPTIONAL { ?other caselawp:id ?oid . ?oj a caselawo:Judgment ; caselawp:id ?oid ; caselawp:judgmentdate ?odate } }
+            } ORDER BY DESC(?date)
+    show:
+        type: htable
+        group_by: entity
+        columns:
+            - id: label
+              label: 変更した判決（大法廷）
+              link: entity
+              width: 220
+            - id: date
+              label: 判決日
+              width: 90
+            - id: olabel
+              label: 変更された判例
+              link: other
+              width: 220
+            - id: odate
+              label: その判決日
+              width: 90
+            - id: stmt
+              label: 判例変更の文
+              width: 420
+# ---- 法的論点（B 軸: 法律上、何が争われたか。hanrei の src/legalissue.py の legalissue.ttl。2026.11.8）----
+-   def: gadget
+    name: IssueTopics
+    title: この論点（下位の論点を含む）のトピック（条・語・事件名の手がかりを詰めて集めた判例）
+    get:
+        type: sparql
+        src: |
+            SELECT ?t ?tlabel ?rel ?f ?flabel ?ns ?nm ?ev WHERE {
+            graph <http://ds.rois.ac.jp/caselaw/> {
+                ?f skos:broader* $uri .
+                ?t caselawp:topicAxis ?f ; rdfs:label ?tlabel .
+                ?f rdfs:label ?flabel .
+                OPTIONAL { ?t skos:broadMatch ?bm }
+                BIND(IF(BOUND(?bm), "下位", "同じ") AS ?rel)
+                OPTIONAL { ?t caselawp:topicStrongCount ?ns }
+                OPTIONAL { ?t caselawp:topicMiddleCount ?nm }
+                OPTIONAL { ?t caselawp:topicEvaluation ?ev }
+            }} ORDER BY ?flabel ?tlabel
+    show:
+        type: htable
+        columns:
+            - id: t
+              type: link
+              string: "?tlabel"
+              label: トピック
+              width: 220
+            - id: rel
+              type: literal
+              label: 範囲
+              width: 50
+            - id: f
+              type: link
+              string: "?flabel"
+              label: 論点
+              width: 220
+            - id: ns
+              type: literal
+              label: 強
+              display: number
+              width: 60
+            - id: nm
+              type: literal
+              label: 中
+              display: number
+              width: 60
+            - id: ev
+              type: literal
+              label: 答え合わせ
+              width: 200
+-   def: gadget
+    name: IssueInfo
+    title: 法的論点
+    get:
+        type: sparql
+        src: |
+            SELECT ?label ?level ?parent ?parentlabel ?clause ?clauselabel ?topic ?topiclabel ?comment WHERE {
+            graph <http://ds.rois.ac.jp/caselaw/> {
+                $uri rdfs:label ?label .
+                OPTIONAL { $uri skos:notation ?level }
+                OPTIONAL { $uri skos:broader ?parent . ?parent rdfs:label ?parentlabel }
+                OPTIONAL { $uri skos:relatedMatch ?topic . OPTIONAL { ?topic rdfs:label ?topiclabel } }
+                OPTIONAL { $uri rdfs:comment ?comment }
+            }
+                OPTIONAL { $uri caselawp:issueClause ?clause . OPTIONAL { ?clause rdfs:label ?cl } }
+                BIND(COALESCE(?cl, ?clause) AS ?clauselabel)
+            }
+    show:
+        type: htable
+        group_by: label
+        columns:
+            - id: label
+              label: 論点
+              width: 200
+            - id: level
+              label: 段
+              width: 70
+            - id: parentlabel
+              label: 上位
+              link: parent
+              width: 160
+            - id: clauselabel
+              label: 条（判断の中で参照した条を手がかりにする）
+              link: clause
+              width: 220
+            - id: topiclabel
+              label: トピック
+              link: topic
+              width: 140
+            - id: comment
+              label: メモ
+              width: 200
+-   def: gadget
+    name: IssueHierarchy
+    title: 上位・下位の論点
+    get:
+        type: sparql
+        src: |
+            SELECT ?rel ?f ?label (COUNT(DISTINCT ?doc) AS ?n) (COUNT(DISTINCT ?cand) AS ?nc) WHERE {
+            graph <http://ds.rois.ac.jp/caselaw/> {
+                { $uri skos:broader ?f . BIND("上位" AS ?rel) BIND(0 AS ?ord) }
+                UNION { ?f skos:broader $uri . BIND("下位" AS ?rel) BIND(1 AS ?ord) }
+                UNION { $uri skos:broader ?p . ?f skos:broader ?p . FILTER(?f != $uri) BIND("同じ上位の論点" AS ?rel) BIND(2 AS ?ord) }
+                ?f rdfs:label ?label .
+                OPTIONAL { ?sub skos:broader* ?f . ?doc caselawp:legalIssue ?sub }
+                OPTIONAL { ?sub2 skos:broader* ?f . ?cand caselawp:legalIssueCandidate ?sub2 }
+            }} GROUP BY ?ord ?rel ?f ?label ORDER BY ?ord ?label
+    show:
+        type: htable
+        columns:
+            - id: rel
+              type: literal
+              label: 関係
+              width: 120
+            - id: f
+              type: link
+              string: "?label"
+              label: 論点
+              width: 280
+            - id: n
+              type: literal
+              label: 判例（強）
+              width: 80
+            - id: nc
+              type: literal
+              label: 候補（中）
+              width: 80
+-   def: gadget
+    name: CaseLawWithThisIssue
+    title: この論点（下位の論点を含む）の判例（確かさ 強、候補 中 の順。その中は新しい順）
+    collection:
+        title: この論点の判決文書
+        var: doc
+        class: caselawo:CaseLawDocument
+        label: 判決文書をコレクションとして表示
+    get:
+        type: sparql
+        page_size: 50
+        src: |
+            # 強 = 判断の中で参照した条と論点キーワードの両方、またはトピック。中（候補）= 条だけ、または語だけ
+            SELECT ?doc ?label ?f ?flabel ?conf ?date WHERE {
+            graph <http://ds.rois.ac.jp/caselaw/> {
+                ?f skos:broader* $uri .
+                { ?doc caselawp:legalIssue ?f . BIND("強" AS ?conf) BIND(0 AS ?ord) }
+                UNION { ?doc caselawp:legalIssueCandidate ?f . BIND("中（候補）" AS ?conf) BIND(1 AS ?ord) }
+                ?doc rdfs:label ?label .
+                ?f rdfs:label ?flabel .
+                OPTIONAL { ?doc caselawp:id ?id . ?j a caselawo:Judgment ; caselawp:id ?id ; caselawp:judgmentdate ?date }
+            }} ORDER BY ?ord DESC(?date)
+    show:
+        type: htable
+        columns:
+            - id: label
+              label: 判例（事件名）
+              link: doc
+              width: 300
+            - id: date
+              label: 判決日
+              width: 90
+            - id: f
+              type: link
+              string: "?flabel"
+              label: 論点
+              width: 220
+            - id: conf
+              type: literal
+              label: 確かさ
+              width: 80
+-   def: gadget
+    name: DocAxes
+    title: 分類（分野＝何についての事件か、法的論点＝何が争われたか、手続・審級＝どの手続で判断されたか）
+    get:
+        type: sparql
+        src: |
+            SELECT ?axis ?c ?clabel ?how ?ord WHERE {
+            graph <http://ds.rois.ac.jp/caselaw/> {
+                $uri caselawp:id ?id .
+                ?doc a caselawo:CaseLawDocument ; caselawp:id ?id .
+                { ?doc caselawp:legalfield ?c . BIND("分野" AS ?axis) BIND("人手" AS ?how) BIND(0 AS ?ord) }
+                UNION { ?doc caselawp:legalfieldByRule ?c . BIND("分野" AS ?axis) BIND("規則" AS ?how) BIND(1 AS ?ord) }
+                UNION { ?doc caselawp:legalfieldByTopic ?c . BIND("分野" AS ?axis) BIND("トピックから" AS ?how) BIND(2 AS ?ord) }
+                UNION { ?doc caselawp:legalIssue ?c . BIND("法的論点" AS ?axis) BIND("強" AS ?how) BIND(3 AS ?ord) }
+                UNION { ?doc caselawp:legalIssueCandidate ?c . BIND("法的論点" AS ?axis) BIND("中（候補）" AS ?how) BIND(4 AS ?ord) }
+                UNION { ?doc caselawp:procedure ?c . BIND("手続" AS ?axis) BIND("事件記号など" AS ?how) BIND(5 AS ?ord) }
+                UNION { ?doc caselawp:instance ?c . BIND("審級" AS ?axis) BIND("事件記号など" AS ?how) BIND(6 AS ?ord) }
+                ?c rdfs:label ?clabel .
+            }} ORDER BY ?ord ?clabel
+    show:
+        type: htable
+        columns:
+            - id: axis
+              type: literal
+              label: 軸
+              width: 90
+            - id: c
+              type: link
+              string: "?clabel"
+              label: 分類
+              width: 280
+            - id: how
+              type: literal
+              label: 付け方・確かさ
+              width: 110
+-   def: gadget
+    name: facet_legal_issue
+    get:
+        type: facet
+        name: legal_issue
+        label: 法的論点（何が争われたか。確かさ 強）
+        predicate: caselawp:legalIssue/skos:broader*
+        value_type: iri
+        limit: 30
+        search: true
+    show:
+        type: facet
+-   def: page
+    name: LegalIssue
+    type: http://ds.rois.ac.jp/caselaw/ontology/LegalIssue
+    gadget:
+        - IssueInfo
+        - IssueHierarchy
+        - IssueTopics
+        - CaseLawWithThisIssue
+# ---- 手続と審級（C 軸: どの手続で、どの審級で判断されたか。hanrei の src/procedure.py の procedure.ttl。2026.11.8）----
+-   def: gadget
+    name: facet_procedure
+    get:
+        type: facet
+        name: procedure
+        label: 手続（どの手続で判断されたか）
+        predicate: caselawp:procedure/skos:broader*
+        value_type: iri
+    show:
+        type: facet
+-   def: gadget
+    name: facet_instance
+    get:
+        type: facet
+        name: instance
+        label: 審級
+        predicate: caselawp:instance
+        value_type: iri
+    show:
+        type: facet
+-   def: gadget
+    name: ProcedureInfo
+    title: 手続・審級（下位を含む判例の数）
+    get:
+        type: sparql
+        src: |
+            SELECT ?rel ?f ?label (COUNT(DISTINCT ?doc) AS ?n) WHERE {
+            graph <http://ds.rois.ac.jp/caselaw/> {
+                { BIND($uri AS ?f) BIND("これ" AS ?rel) BIND(0 AS ?ord) }
+                UNION { $uri skos:broader ?f . BIND("上位" AS ?rel) BIND(1 AS ?ord) }
+                UNION { ?f skos:broader $uri . BIND("下位" AS ?rel) BIND(2 AS ?ord) }
+                ?f rdfs:label ?label .
+                OPTIONAL { ?sub skos:broader* ?f . ?doc caselawp:procedure|caselawp:instance ?sub }
+            }} GROUP BY ?ord ?rel ?f ?label ORDER BY ?ord ?label
+    show:
+        type: htable
+        columns:
+            - id: rel
+              type: literal
+              label: 関係
+              width: 80
+            - id: f
+              type: link
+              string: "?label"
+              label: 手続・審級
+              width: 240
+            - id: n
+              type: literal
+              label: 判例
+              width: 80
+-   def: gadget
+    name: CaseLawWithThisProcedure
+    title: この手続・審級の判例（新しい順）
+    collection:
+        title: この手続・審級の判決文書
+        var: doc
+        class: caselawo:CaseLawDocument
+        label: 判決文書をコレクションとして表示
+    get:
+        type: sparql
+        page_size: 50
+        src: |
+            SELECT ?doc ?label ?p ?plabel ?inst ?date WHERE {
+            graph <http://ds.rois.ac.jp/caselaw/> {
+                { ?p skos:broader* $uri . ?doc caselawp:procedure ?p } UNION { ?doc caselawp:instance $uri . ?doc caselawp:procedure ?p }
+                ?doc rdfs:label ?label . ?p rdfs:label ?plabel .
+                OPTIONAL { ?doc caselawp:instance ?i . ?i rdfs:label ?inst }
+                OPTIONAL { ?doc caselawp:id ?id . ?j a caselawo:Judgment ; caselawp:id ?id ; caselawp:judgmentdate ?date }
+            }} ORDER BY DESC(?date)
+    show:
+        type: htable
+        columns:
+            - id: label
+              label: 判例（事件名）
+              link: doc
+              width: 320
+            - id: date
+              label: 判決日
+              width: 90
+            - id: plabel
+              label: 手続
+              link: p
+              width: 140
+            - id: inst
+              label: 審級
+              width: 80
+-   def: page
+    name: Procedure
+    type: http://ds.rois.ac.jp/caselaw/ontology/Procedure
+    gadget:
+        - ProcedureInfo
+        - CaseLawWithThisProcedure
+-   def: page
+    name: Instance
+    type: http://ds.rois.ac.jp/caselaw/ontology/Instance
+    gadget:
+        - ProcedureInfo
+        - CaseLawWithThisProcedure
 -   def: gadget
     name: RefCase
     # 本文で参照している事件(refcase.ttl の caselawp:refcase)。裁判所が分かれば事件(caselawo:Case)、分からなければ事件番号(caselawo:CaseNumber)。
@@ -973,6 +1948,8 @@
               width: 300
 -   def: gadget
     name: TermRelation
+    # 語のページで共通。同じラベルの判例のターム（caselawo:Term）について（2026.11.5）
+    focus: '$uri rdfs:label ?l . ?new rdfs:label ?l ; a caselawo:Term .'
     # 上位・下位・関連のターム（hanrei の src/keywords.py の keywords.ttl。2026.10.17）。
     # 複合語の後ろの部分を上位とする（起訴休職→休職）。「AのB」は B が上位、A が関連（裁量権の濫用→濫用、関連 裁量権）
     get:
@@ -998,6 +1975,8 @@
               width: 250
 -   def: gadget
     name: CaseLawWithThisKeyword
+    # 語のページで共通。同じラベルの判例のターム（caselawo:Term）について（2026.11.5）
+    focus: '$uri rdfs:label ?l . ?new rdfs:label ?l ; a caselawo:Term .'
     # このターム、またはその下位のターム（skos:broader をたどる）をキーワードに持つ判例（2026.10.17）
     get:
         type: sparql
@@ -1026,6 +2005,8 @@
               width: 300
 -   def: gadget
     name: CaseLawContainingThisTerm
+    # 語のページで共通。同じラベルの判例のターム（caselawo:Term）について（2026.11.5）
+    focus: '$uri rdfs:label ?l . ?new rdfs:label ?l ; a caselawo:Term .'
     # このタームで絞り込んだ判決文書のコレクションへ（他のタームを加えて OR / AND で組み合わせられる）
     collection:
         class: caselawo:CaseLawDocument
@@ -1839,6 +2820,212 @@
               width: 220
 # トピックの階層（skos:broader。下位のトピックの判例は上位のトピックの判例に限る）
 -   def: gadget
+    name: FieldInfo
+    title: 分野
+    get:
+        type: sparql
+        src: |
+            select ?label ?level ?parent ?parentlabel ?scheme where {
+            graph <http://ds.rois.ac.jp/caselaw/> {
+                $uri rdfs:label ?label .
+                OPTIONAL { $uri skos:notation ?level }
+                OPTIONAL { $uri skos:broader ?parent . OPTIONAL { ?parent rdfs:label ?parentlabel } }
+                OPTIONAL { $uri skos:inScheme ?s . ?s rdfs:label ?scheme }
+            }} limit 1
+    show:
+        type: vtable
+        columns:
+            - id: label
+              label: 分野
+              width: 120
+            - id: level
+              label: 分類の段階
+            - id: parentlabel
+              label: 上位の分野
+              link: parent
+            - id: scheme
+              label: 分類の体系
+-   def: gadget
+    name: FieldHierarchy
+    title: 上位・下位の分野
+    # 下位の分野の判例の数は、さらに下位の分野の判例も含める（skos:broader をたどる）
+    get:
+        type: sparql
+        src: |
+            SELECT ?rel ?f ?label (COUNT(DISTINCT ?doc) AS ?n) WHERE {
+            graph <http://ds.rois.ac.jp/caselaw/> {
+                { $uri skos:broader ?f . BIND("上位" AS ?rel) BIND(0 AS ?ord) }
+                UNION { ?f skos:broader $uri . BIND("下位" AS ?rel) BIND(1 AS ?ord) }
+                UNION { $uri skos:broader ?p . ?f skos:broader ?p . FILTER(?f != $uri) BIND("同じ上位の分野" AS ?rel) BIND(2 AS ?ord) }
+                ?f rdfs:label ?label .
+                # 人手（legalfield）と規則（legalfieldByRule。事件名・事案キーワード・権利種別。2026.11.8）で付けた判例
+                OPTIONAL { ?sub skos:broader* ?f . ?doc caselawp:legalfield|caselawp:legalfieldByRule ?sub }
+            }} GROUP BY ?ord ?rel ?f ?label ORDER BY ?ord ?label
+    show:
+        type: htable
+        columns:
+            - id: rel
+              type: literal
+              label: 関係
+              width: 120
+            - id: f
+              type: link
+              string: "?label"
+              label: 分野
+              width: 260
+            - id: n
+              type: literal
+              label: 判例
+              width: 80
+-   def: gadget
+    name: CaseLawInThisField
+    title: この分野（下位の分野を含む）の判例（人手で付けたもの、規則で付けたもの。新しい順）
+    collection:
+        title: この分野の判決文書
+        var: doc
+        class: caselawo:CaseLawDocument
+        label: 判決文書をコレクションとして表示
+    get:
+        type: sparql
+        page_size: 50
+        src: |
+            # 規則（legalfieldByRule）は、事件名・事案キーワード・権利種別から付けたもの（hanrei の src/field.py。2026.11.8）
+            select ?doc ?label ?f ?flabel ?how ?date where {
+            graph <http://ds.rois.ac.jp/caselaw/> {
+                ?f skos:broader* $uri .
+                { ?doc caselawp:legalfield ?f . BIND("人手" AS ?how) }
+                UNION { ?doc caselawp:legalfieldByRule ?f . FILTER NOT EXISTS { ?doc caselawp:legalfield ?f } BIND("規則" AS ?how) }
+                ?doc rdfs:label ?label .
+                ?f rdfs:label ?flabel .
+                OPTIONAL { ?doc caselawp:id ?id . ?j a caselawo:Judgment ; caselawp:id ?id ; caselawp:judgmentdate ?date }
+            }} order by desc(?date)
+    show:
+        type: htable
+        columns:
+            - id: label
+              label: 判例（事件名）
+              link: doc
+              width: 320
+            - id: date
+              label: 判決日
+              width: 90
+            - id: f
+              type: link
+              string: "?flabel"
+              label: 分野
+              width: 220
+            - id: how
+              type: literal
+              label: 付け方
+              width: 60
+# 分野とトピックの対応（hanrei の topic_def.csv の「分野」「対応する分野」。topics.py が caselawp:topicField・skos:relatedMatch にする。2026.11.5）
+-   def: gadget
+    name: FieldTopics
+    title: この分野（下位の分野を含む）のトピック
+    get:
+        type: sparql
+        src: |
+            SELECT ?t ?tlabel ?rel ?f ?flabel (COUNT(DISTINCT ?doc) AS ?n) WHERE {
+            graph <http://ds.rois.ac.jp/caselaw/> {
+                ?f skos:broader* $uri .
+                { ?t caselawp:topicAxis ?f . BIND("軸" AS ?rel) BIND(-1 AS ?ord) }
+                UNION { ?t caselawp:topicField ?f . FILTER NOT EXISTS { ?t caselawp:topicAxis ?f } BIND("分野" AS ?rel) BIND(0 AS ?ord) }
+                UNION { ?t skos:relatedMatch ?f . FILTER NOT EXISTS { ?t caselawp:topicField ?f } BIND("対応する分野" AS ?rel) BIND(1 AS ?ord) }
+                ?t a caselawo:Topic ; rdfs:label ?tlabel .
+                ?f rdfs:label ?flabel .
+                OPTIONAL { ?doc caselawp:topicCore ?t }
+            }} GROUP BY ?ord ?t ?tlabel ?rel ?f ?flabel ORDER BY ?ord ?tlabel
+    show:
+        type: htable
+        columns:
+            - id: t
+              type: link
+              string: "?tlabel"
+              label: トピック
+              width: 220
+            - id: rel
+              type: literal
+              label: 対応
+              width: 100
+            - id: f
+              type: link
+              string: "?flabel"
+              label: 分野
+              width: 220
+            - id: n
+              type: literal
+              label: 判例（強・中）
+              width: 100
+-   def: gadget
+    name: CaseLawInThisFieldByTopic
+    title: トピックから分野を付けた判例（この分野・下位の分野。人手で付けた分野の判例とは別）
+    collection:
+        title: トピックから分野を付けた判決文書
+        var: doc
+        class: caselawo:CaseLawDocument
+        label: 判決文書をコレクションとして表示
+    get:
+        type: sparql
+        page_size: 50
+        src: |
+            SELECT ?doc ?label ?f ?flabel ?date ?tagged WHERE {
+            graph <http://ds.rois.ac.jp/caselaw/> {
+                ?f skos:broader* $uri .
+                ?doc caselawp:legalfieldByTopic ?f ; rdfs:label ?label .
+                ?f rdfs:label ?flabel .
+                OPTIONAL { ?doc caselawp:legalfield ?g . ?g skos:broader* $uri . BIND("付いている" AS ?tg) }
+                BIND(COALESCE(?tg, "") AS ?tagged)
+                OPTIONAL { ?doc caselawp:id ?id . ?j a caselawo:Judgment ; caselawp:id ?id ; caselawp:judgmentdate ?date }
+            }} ORDER BY DESC(?date)
+    show:
+        type: htable
+        columns:
+            - id: doc
+              type: link
+              string: "?label"
+              label: 判例（事件名）
+              width: 320
+            - id: f
+              type: link
+              string: "?flabel"
+              label: 分野
+              width: 220
+            - id: tagged
+              type: literal
+              label: 人手の分野
+              width: 90
+            - id: date
+              type: literal
+              label: 判決日
+              width: 100
+-   def: gadget
+    name: TopicField
+    title: このトピックの軸・分野
+    get:
+        type: sparql
+        src: |
+            # 軸 = topic_def.csv の「軸」（法的論点か分野。2026.11.8）。分野 = 判例に分野を付けるのに使う分野
+            SELECT ?rel ?f ?label WHERE {
+            graph <http://ds.rois.ac.jp/caselaw/> {
+                { $uri skos:exactMatch ?f . BIND("軸（同じ範囲）" AS ?rel) BIND(-2 AS ?ord) }
+                UNION { $uri skos:broadMatch ?f . BIND("軸（この下位）" AS ?rel) BIND(-1 AS ?ord) }
+                UNION { $uri caselawp:topicField ?f . BIND("分野" AS ?rel) BIND(0 AS ?ord) }
+                UNION { $uri skos:relatedMatch ?f . FILTER NOT EXISTS { $uri caselawp:topicField ?f } BIND("対応する分野" AS ?rel) BIND(1 AS ?ord) }
+                ?f rdfs:label ?label .
+            }} ORDER BY ?ord ?label
+    show:
+        type: htable
+        columns:
+            - id: rel
+              type: literal
+              label: 対応
+              width: 120
+            - id: f
+              type: link
+              string: "?label"
+              label: 軸の概念・分野
+              width: 300
+-   def: gadget
     name: TopicHierarchy
     title: 上位・下位のトピック
     get:
@@ -1922,48 +3109,94 @@
     name: Topics
     type: collection
     class: caselawo:Topic
+    sidebar:
+        - facet_topic_axis
     tabs:
         - label: 一覧
           gadget:
             - TopicList
 -   def: gadget
     name: TopicList
-    title: トピック
+    title: トピック（軸の概念の判例を、条・語・事件名の手がかりを詰めて集めたもの）
     get:
         type: sparql
         src: |
-            # 上位のトピックの下に下位のトピックが並ぶように、上位の名前・上位か下位か・名前の順に並べる
-            SELECT ?entity ?label ?parent ?plabel ?ncore ?nall WHERE {
-              { SELECT ?entity (COUNT(DISTINCT ?core) AS ?ncore) WHERE {
-                  $collection
-                  OPTIONAL { ?core caselawp:topicCore ?entity } } GROUP BY ?entity }
-              { SELECT ?entity (COUNT(DISTINCT ?doc) AS ?nall) WHERE {
-                  $collection
-                  OPTIONAL { ?doc caselawp:topic ?entity } } GROUP BY ?entity }
+            # 軸（法的論点・分野）→ 大分類 → 上位のトピック → トピックの順に並べる（2026.11.8）
+            SELECT ?entity ?label ?scheme ?glabel ?axis ?alabel ?rel ?parent ?plabel ?ns ?nm ?nw ?ev WHERE {
+              $collection
               ?entity rdfs:label ?label .
+              # OPTIONAL はどれも ?entity から始める（他の OPTIONAL の変数から始めると、Virtuoso では束縛されないまま全件と組になる）
+              OPTIONAL { ?entity caselawp:topicAxis ?axis . ?axis rdfs:label ?alabel .
+                         ?axis skos:broader* ?top . ?top skos:topConceptOf ?sch ; rdfs:label ?glabel . ?sch rdfs:label ?scheme }
+              OPTIONAL { ?entity skos:broadMatch ?bm }
+              BIND(IF(BOUND(?bm), "下位", IF(BOUND(?axis), "同じ", "")) AS ?rel)
               OPTIONAL { ?entity skos:broader ?parent . ?parent rdfs:label ?plabel }
-            } ORDER BY COALESCE(?plabel, ?label) BOUND(?parent) ?label
+              OPTIONAL { ?entity caselawp:topicStrongCount ?ns }
+              OPTIONAL { ?entity caselawp:topicMiddleCount ?nm }
+              OPTIONAL { ?entity caselawp:topicWeakCount ?nw }
+              OPTIONAL { ?entity caselawp:topicEvaluation ?ev }
+            } ORDER BY DESC(?scheme) ?glabel COALESCE(?plabel, ?label) BOUND(?parent) ?label
     show:
         type: htable
+        group_by: entity
         columns:
+            - id: scheme
+              type: literal
+              label: 軸
+              width: 90
+            - id: glabel
+              type: literal
+              label: 大分類
+              width: 110
             - id: entity
               type: link
               string: "?label"
               label: トピック
-              width: 260
+              width: 230
+            - id: axis
+              type: link
+              string: "?alabel"
+              label: 対応する軸の概念
+              width: 200
+            - id: rel
+              type: literal
+              label: 範囲
+              width: 50
             - id: parent
               type: link
               string: "?plabel"
               label: 上位のトピック
-              width: 160
-            - id: ncore
+              width: 130
+            - id: ns
               type: literal
-              label: 判例（強・中）
-              width: 100
-            - id: nall
+              label: 強
+              display: number
+              width: 60
+            - id: nm
               type: literal
-              label: 判例（弱を含む）
-              width: 100
+              label: 中
+              display: number
+              width: 60
+            - id: nw
+              type: literal
+              label: 弱
+              display: number
+              width: 60
+            - id: ev
+              type: literal
+              label: 答え合わせ
+              width: 200
+-   def: gadget
+    name: facet_topic_axis
+    get:
+        type: facet
+        name: topic_axis
+        label: 対応する軸の概念（上位を含む）
+        predicate: caselawp:topicAxis/skos:broader*
+        value_type: iri
+        limit: 30
+    show:
+        type: facet
 # ---- 個別意見のコレクション（2026.10.20）----
 -   def: page
     name: SeparateOpinions
@@ -2412,6 +3645,7 @@
             PDFページ数分布,/collection?class=http%3A%2F%2Fds.rois.ac.jp%2Fcaselaw%2Fontology%2FCaseLawDocument&tab=1
             構造パターン,/collection?class=http%3A%2F%2Fds.rois.ac.jp%2Fcaselaw%2Fontology%2FCaseLawDocument&tab=2
             PDFの状況,/collection?view=PdfStatus
+            問題のあるPDF,/collection?view=PdfProblems
     show: 
         type: htable
         columns:
@@ -2435,6 +3669,16 @@
         - facet_doc_court
         - facet_disposition
         - facet_judgment_result
+        - facet_fact_field
+        - facet_legal_issue
+        - facet_procedure
+        - facet_instance
+        - facet_crime_name
+        - facet_crime_count
+        - facet_sentence_kind
+        - facet_sentence_months
+        - facet_sentence_status
+        - facet_penal_provision
         - facet_term
         - facet_suit_type
         - facet_field
@@ -2456,6 +3700,14 @@
           gadget:
             - JudicalOpinionStructPie
             - JudicalOpinionStruct
+        # 量刑（hanrei の src/sentencing.py の sentencing.ttl。罪名・量刑の種類・刑期で絞り込んで比べる。2026.11.7）
+        - label: 量刑
+          lazy: true
+          gadget:
+            - SentenceKindBar
+            - SentenceYearsBar
+            - SentenceSuspendedYearsBar
+            - SentenceList
         # 順位表（get.type: rank。統計ページの設計の第一段。選ばれたときだけ計算する。2026.10.20）
         - label: 参照の多い判例
           lazy: true
@@ -2666,6 +3918,19 @@
         label: 分野
         predicate: caselawp:id/^caselawp:id/caselawp:分野
         value_type: iri
+    show:
+        type: facet
+# 分野（A 軸: 事実・社会問題。hanrei の src/field.py。2026.11.8）。上位の分野でも絞れるように skos:broader* をたどる
+-   def: gadget
+    name: facet_fact_field
+    get:
+        type: facet
+        name: fact_field
+        label: 分野（何についての事件か）
+        predicate: (caselawp:legalfield|caselawp:legalfieldByRule|caselawp:legalfieldByTopic)/skos:broader*
+        value_type: iri
+        limit: 30
+        search: true
     show:
         type: facet
 -   def: gadget
@@ -3110,6 +4375,7 @@
                  dcterms:extent ?npages .
         }
     sidebar:
+        - facet_pdf_defect
         - facet_pdf_text_method
         - facet_pdf_feature
         - facet_pdf_npages
@@ -3387,6 +4653,254 @@
             }
             GROUP BY ?y
             ORDER BY ?y
+    show:
+        type: chart
+        chart: bar
+        labels: y
+        dataset: count
+# ---------------------------------------------------------------- 問題のあるPDFのコレクション（2026.11.8）
+#   /collection?view=PdfProblems。要素はPDF化の誤りのある判決文書（hanrei の src/pdfdefects.py の pdfdefects.ttl）
+#   PDF化の誤り caselawp:pdfDefect（caselawo:PDF誤り_…: 画像になった文字・中黒の番号・行頭の中黒・表せない文字・CIDのままの文字・外字・読み誤り）、
+#   種類ごとの件数と例 caselawp:pdfDefectDetail [ caselawp:defectType ; caselawp:defectCount ; caselawp:defectExample ]
+-   def: page
+    name: PdfProblems
+    type: collection
+    query: |
+        SELECT DISTINCT ?uri
+        WHERE {
+            ?uri a caselawo:CaseLawDocument ;
+                 caselawp:pdfDefect ?defect .
+        }
+    sidebar:
+        - facet_pdf_defect
+        - facet_pdf_producer
+        - facet_pdf_creator
+        - facet_pdf_created
+        - facet_pdf_text_method
+        - facet_pdf_feature
+        - facet_doc_court
+        - facet_year
+    tabs:
+        - label: 一覧
+          gadget:
+            - PdfProblemList
+        - label: 問題別
+          lazy: true
+          gadget:
+            - PdfDefectBar
+            - PdfDefectTable
+        - label: 作成ツール別
+          lazy: true
+          gadget:
+            - PdfDefectByProducer
+            - PdfDefectByCreator
+        - label: PDFの作成年別
+          lazy: true
+          gadget:
+            - PdfDefectByCreatedYear
+-   def: gadget
+    name: facet_pdf_defect
+    get:
+        type: facet
+        name: pdf_defect
+        label: PDF化の誤り
+        predicate: caselawp:pdfDefect
+        value_type: iri
+        label_predicate: rdfs:label
+    show:
+        type: facet
+-   def: gadget
+    name: PdfProblemList
+    title: 問題のあるPDF（種類ごとの件数と例。例の〓は読めなかった字、〔 〕はOCRで読んだ字）
+    get:
+        type: sparql
+        page_size: 50
+        src: |
+            SELECT ?entity ?id ?label ?year ?kind ?n ?example ?producer ?creator
+            WHERE {
+                $collection
+                ?entity caselawp:id ?id ; rdfs:label ?label .
+                OPTIONAL { ?entity caselawp:year ?year }
+                ?entity caselawp:pdfDefectDetail ?d .
+                ?d caselawp:defectType ?t ; caselawp:defectCount ?n .
+                ?t rdfs:label ?kind .
+                OPTIONAL { ?d caselawp:defectExample ?example }
+                OPTIONAL { ?entity caselawp:pdfProducerTool ?producer }
+                OPTIONAL { ?entity caselawp:pdfCreatorTool ?creator }
+            } ORDER BY DESC(?year) ?id ?kind
+    show:
+        type: htable
+        columns:
+            - id: entity
+              type: link
+              string: "?id"
+              label: ID
+              width: 70
+            - id: label
+              label: 事件
+              width: 200
+            - id: year
+              label: 年
+              width: 50
+            - id: kind
+              label: 誤りの種類
+              width: 110
+            - id: n
+              label: 箇所
+              width: 50
+            - id: example
+              label: 例
+              width: 320
+            - id: producer
+              label: 作成ツール（Producer）
+              width: 160
+              collection:
+                  view: PdfProblems
+                  facet: pdf_producer
+            - id: creator
+              label: 元の文書の作成ツール（Creator）
+              width: 140
+-   def: gadget
+    name: PdfDefectBar
+    title: 誤りの種類ごとの判決文書の数
+    get:
+        type: sparql
+        src: |
+            SELECT ?kind (COUNT(DISTINCT ?entity) AS ?count)
+            WHERE {
+                $collection
+                ?entity caselawp:pdfDefect ?t .
+                ?t rdfs:label ?kind .
+            } GROUP BY ?kind ORDER BY DESC(?count)
+    show:
+        type: chart
+        chart: bar
+        labels: kind
+        dataset: count
+-   def: gadget
+    name: PdfDefectTable
+    title: 誤りの種類（判決文書の数、箇所の合計、年の範囲）
+    get:
+        type: sparql
+        src: |
+            SELECT ?t ?kind ?comment (COUNT(DISTINCT ?entity) AS ?docs) (SUM(?n) AS ?total) (MIN(?year) AS ?from) (MAX(?year) AS ?to)
+            WHERE {
+                $collection
+                ?entity caselawp:pdfDefectDetail ?d .
+                ?d caselawp:defectType ?t ; caselawp:defectCount ?n .
+                ?t rdfs:label ?kind .
+                OPTIONAL { ?t rdfs:comment ?comment }
+                OPTIONAL { ?entity caselawp:year ?year }
+            } GROUP BY ?t ?kind ?comment ORDER BY DESC(?docs)
+    show:
+        type: htable
+        columns:
+            - id: kind
+              label: 誤りの種類
+              width: 130
+              collection:
+                  view: PdfProblems
+                  facet: pdf_defect
+                  value: t
+            - id: docs
+              label: 判決文書
+              width: 70
+            - id: total
+              label: 箇所の合計
+              width: 80
+            - id: from
+              label: 最も古い年
+              width: 70
+            - id: to
+              label: 最も新しい年
+              width: 70
+            - id: comment
+              label: 説明
+              width: 420
+-   def: gadget
+    name: PdfDefectByProducer
+    title: 作成ツール（Producer）× 誤りの種類（割合 = そのツールで作られたPDF全体のうち、その誤りのあるもの）
+    get:
+        type: sparql
+        src: |
+            SELECT ?producer ?kind (COUNT(DISTINCT ?entity) AS ?docs) ?all
+                   (ROUND(1000.0 * COUNT(DISTINCT ?entity) / ?all) / 10 AS ?pct)
+            WHERE {
+                $collection
+                ?entity caselawp:pdfProducerTool ?producer ; caselawp:pdfDefect ?t .
+                ?t rdfs:label ?kind .
+                { SELECT ?producer (COUNT(?x) AS ?all) WHERE { ?x caselawp:pdfProducerTool ?producer } GROUP BY ?producer }
+            } GROUP BY ?producer ?kind ?all ORDER BY DESC(?docs)
+            LIMIT 100
+    show:
+        type: htable
+        columns:
+            - id: producer
+              label: 作成ツール（Producer）
+              width: 300
+              collection:
+                  view: PdfProblems
+                  facet: pdf_producer
+            - id: kind
+              label: 誤りの種類
+              width: 120
+            - id: docs
+              label: 誤りのある判決文書
+              width: 90
+            - id: all
+              label: そのツールのPDF全体
+              width: 90
+            - id: pct
+              label: 割合（%）
+              width: 70
+-   def: gadget
+    name: PdfDefectByCreator
+    title: 元の文書の作成ツール（Creator）× 誤りの種類
+    get:
+        type: sparql
+        src: |
+            SELECT ?creator ?kind (COUNT(DISTINCT ?entity) AS ?docs) ?all
+                   (ROUND(1000.0 * COUNT(DISTINCT ?entity) / ?all) / 10 AS ?pct)
+            WHERE {
+                $collection
+                ?entity caselawp:pdfCreatorTool ?creator ; caselawp:pdfDefect ?t .
+                ?t rdfs:label ?kind .
+                { SELECT ?creator (COUNT(?x) AS ?all) WHERE { ?x caselawp:pdfCreatorTool ?creator } GROUP BY ?creator }
+            } GROUP BY ?creator ?kind ?all ORDER BY DESC(?docs)
+            LIMIT 100
+    show:
+        type: htable
+        columns:
+            - id: creator
+              label: 元の文書の作成ツール（Creator）
+              width: 300
+              collection:
+                  view: PdfProblems
+                  facet: pdf_creator
+            - id: kind
+              label: 誤りの種類
+              width: 120
+            - id: docs
+              label: 誤りのある判決文書
+              width: 90
+            - id: all
+              label: そのツールのPDF全体
+              width: 90
+            - id: pct
+              label: 割合（%）
+              width: 70
+-   def: gadget
+    name: PdfDefectByCreatedYear
+    title: PDFの作成年ごとの、誤りのある判決文書の数（判決の年ではなく、PDFファイルが作られた年）
+    get:
+        type: sparql
+        src: |
+            SELECT ?y (COUNT(DISTINCT ?entity) AS ?count)
+            WHERE {
+                $collection
+                ?entity prism:creationDate ?created .
+                BIND(YEAR(?created) AS ?y)
+            } GROUP BY ?y ORDER BY ?y
     show:
         type: chart
         chart: bar

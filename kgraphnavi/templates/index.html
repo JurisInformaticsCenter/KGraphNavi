@@ -40,25 +40,52 @@
     </form>
   </div>
 
+  {% if sections %}
+  <!-- 見出しごとのまとまり（config の sample.sections。2026.11.8） -->
+  <div class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-3 mt-2 top-sections">
+    {% for sec in sections %}
+    <div class="col">
+      <div class="card h-100">
+        <div class="card-body">
+          <h2 class="card-title h5">{{ sec.title }}</h2>
+          {% if sec.describe %}<p class="card-text text-muted small">{{ sec.describe }}</p>{% endif %}
+          <ul class="list-unstyled mb-0">
+            {% for href, label, kind in sec.links %}
+            <li class="mb-1">{% if kind %}<span class="badge bg-light text-secondary border me-1">{{ kind }}</span>{% endif %}<a href="{{ href }}">{{ label }}</a></li>
+            {% endfor %}
+          </ul>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if query_samples %}
   <h2>入力サンプル</h2>
   <ul>
     {% for q in query_samples %}
       <li><a href="/search?q={{ q|urlencode }}">{{ q }}</a></li>
     {% endfor %}
   </ul>
+  {% endif %}
 
+  {% if resource_samples %}
   <h2>リソースサンプル</h2>
   <ul>
     {% for param, label in resource_samples %}
       <li><a href="/resource?{{ param }}">{{ label }}</a></li>
     {% endfor %}
   </ul>
+  {% endif %}
 
+  {% if collection_samples %}
   <h2>コレクションサンプル</h2>
   <ul>
     {% for param, label in collection_samples %}
       <li><a href="/collection?{{ param }}">{{ label }}</a></li>
     {% endfor %}
   </ul>
+  {% endif %}
 </div>
 {% endblock %}

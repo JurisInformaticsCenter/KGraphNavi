@@ -436,3 +436,154 @@ def test_gadget_collection_button_with_facet(tmp_path, monkeypatch):
     client = create_app(build_application(str(config), endpoint="http://example.org/sparql")).test_client()
     html = client.get("/resource?uri=http://example.org/T1").get_data(as_text=True)
     assert "/collection?class=ex%3ADocument&amp;f.term=http%3A%2F%2Fexample.org%2FT1" in html
+
+
+# --------------------------------------------------
+# 種類が複数あるリソース: ページのある種類を選ぶ(2026.11.5)
+# --------------------------------------------------
+
+MULTI_TYPE_CONFIG = """
+- title: TestKG
+- def: page
+  name: Keyword
+  type: http://lod4all.net/law/ontology/Keyword
+  gadget: [g]
+- def: page
+  name: Resource
+  type: '*'
+  gadget: [d]
+- def: gadget
+  name: g
+  title: キーワードのガジェット
+  get:
+    type: sparql
+    src: 'select ?p ?o where { $uri ?p ?o }'
+  show:
+    type: htable
+- def: gadget
+  name: d
+  title: 既定のガジェット
+  get:
+    type: sparql
+    src: 'select ?p ?o where { $uri ?p ?o }'
+  show:
+    type: htable
+"""
+
+
+def test_resource_page_prefers_type_with_page(tmp_path, monkeypatch):
+    # 「株主提案権」(law:株主提案権)は skos:Concept と lawo:Keyword。ページの無い種類が先に選ばれても、ページのある種類のページにする
+    from kgraphnavi import sparql as sparql_module
+
+    def fake_exsparql(self, query):
+        if "?target where" in query:
+            return [{"target": {"type": "uri", "value": "http://www.w3.org/2004/02/skos/core#Concept"}},
+                    {"target": {"type": "uri", "value": "http://lod4all.net/law/ontology/Keyword"}},
+                    {"target": {"type": "uri", "value": "http://aaa.example.org/First"}}]
+        return []
+
+    monkeypatch.setattr(sparql_module.SPARQL, "exsparql", fake_exsparql)
+    config = tmp_path / "test.yaml"
+    config.write_text(MULTI_TYPE_CONFIG, encoding="utf-8")
+    client = create_app(build_application(str(config), endpoint="http://example.org/sparql")).test_client()
+    html = client.get("/resource?uri=http://lod4all.net/law/resource/株主提案権").get_data(as_text=True)
+    assert "キーワードのガジェット" in html and "既定のガジェット" not in html
+
+
+# --------------------------------------------------
+# ガジェットの focus: 問い合わせる前に $uri から別のリソースへ移る(2026.11.5)
+# --------------------------------------------------
+
+FOCUS_CONFIG = """
+- title: TestKG
+- def: page
+  name: Resource
+  type: '*'
+  gadget: [g]
+- def: gadget
+  name: g
+  title: 移った先のガジェット
+  focus: '$uri rdfs:label ?l . ?new rdfs:label ?l'
+  get:
+    type: sparql
+    src: 'select ?o where { $uri <http://example.org/p> ?o }'
+  show:
+    type: htable
+"""
+
+
+def _focus_client(tmp_path, monkeypatch, focused):
+    from kgraphnavi import sparql as sparql_module
+    seen = []
+
+    def fake_exsparql(self, query):
+        seen.append(query)
+        if "?target where" in query:
+            return [{"target": {"type": "uri", "value": "http://example.org/Thing"}}]
+        if "?new where" in query:
+            return [{"new": {"type": "uri", "value": u}} for u in focused]
+        if "<http://example.org/p>" in query and "http://example.org/B" in query:
+            return [{"o": {"type": "literal", "value": "Bの値"}}]
+        return []
+
+    monkeypatch.setattr(sparql_module.SPARQL, "exsparql", fake_exsparql)
+    config = tmp_path / "test.yaml"
+    config.write_text(FOCUS_CONFIG, encoding="utf-8")
+    return create_app(build_application(str(config), endpoint="http://example.org/sparql")).test_client(), seen
+
+
+def test_gadget_focus_moves_uri(tmp_path, monkeypatch):
+    client, seen = _focus_client(tmp_path, monkeypatch, ["http://example.org/B"])
+    html = client.get("/resource?uri=http://example.org/A").get_data(as_text=True)
+    assert "Bの値" in html
+
+
+def test_gadget_focus_keeps_self(tmp_path, monkeypatch):
+    # 自分が候補にあれば自分のまま
+    client, seen = _focus_client(tmp_path, monkeypatch, ["http://example.org/B", "http://example.org/A"])
+    html = client.get("/resource?uri=http://example.org/A").get_data(as_text=True)
+    assert "Bの値" not in html
+
+
+def test_gadget_focus_not_found(tmp_path, monkeypatch):
+    client, seen = _focus_client(tmp_path, monkeypatch, [])
+    html = client.get("/resource?uri=http://example.org/A").get_data(as_text=True)
+    assert "移った先のガジェット" in html and "該当するデータがありません" in html
+
+
+def test_top_page_sample_sections(tmp_path, monkeypatch):
+    """sample.sections: 見出しごとのまとまり（2026.11.8）"""
+    from kgraphnavi import sparql as sparql_module
+
+    monkeypatch.setattr(sparql_module.SPARQL, "exsparql", lambda self, q: [])
+    config = tmp_path / "test.yaml"
+    config.write_text(
+        "- sample:\n"
+        "    sections:\n"
+        "      - title: 探す\n"
+        "        describe: 説明文\n"
+        "        collection: [Alps,アルプス]\n"
+        "        search: [Matterhorn]\n"
+        "        resource: ['http://example.org/x,エックス']\n"
+        "- def: page\n  name: Alps\n  type: collection\n  class: 'http://example.org/M'\n  gadget: [g]\n"
+        "- def: page\n  name: Resource\n  type: '*'\n  gadget: [g]\n"
+        "- def: gadget\n  name: g\n  get:\n    type: sparql\n    src: 'select * where { $uri ?p ?o }'\n"
+        "  show:\n    type: htable\n",
+        encoding="utf-8",
+    )
+    client = create_app(build_application(str(config), endpoint="http://example.org/sparql")).test_client()
+    html = client.get("/").get_data(as_text=True)
+    assert "探す" in html and "説明文" in html
+    assert 'href="/collection?view=Alps"' in html
+    assert 'href="/search?q=Matterhorn"' in html
+    assert 'href="/resource?uri=http%3A%2F%2Fexample.org%2Fx"' in html
+    assert "リソースサンプル" not in html
+
+
+def test_collection_view_with_class_only(client_and_queries):
+    """query が無く class だけのコレクションのページを view= で開ける（2026.11.8）"""
+    client, sent = client_and_queries
+    response = client.get("/collection?view=Mountains")
+    assert response.status_code == 200
+    assert "Collectionを作成するための" not in response.get_data(as_text=True)
+    assert any("Mountain" in q for q in sent)

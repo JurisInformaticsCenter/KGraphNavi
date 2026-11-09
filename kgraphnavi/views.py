@@ -140,6 +140,16 @@ def resolve_collection_request(application, path, args):
         if page is None or page.get("type") != "collection":
             raise CollectionRequestError("コレクションのページがない", f"view={view} というコレクションのページは定義されていません", 404)
         page_name = view
+        if not class_uri and not page.get("query") and page.get("class"):
+            # query が無く class だけのページ（Topics など）。保存のときのクラスにも使う（2026.11.8）
+            return {
+                "page_name": page_name,
+                "uri": None,
+                "params": params,
+                "page_title": get_localname(page["class"][0]),   # class は読み込み時に展開したリスト
+                "base_collection": None,
+                "class_uri": page["class"][0],
+            }
     elif class_uri:
         page_name = application.collection_page(class_uri)
     else:
@@ -214,26 +224,32 @@ def init_app(app):
     def root():
         # Flask のコンテキストから Application を取得
         application = current_app.extensions["application"]
+        def collection_param(value):
+            if application.pages.pagedict.get(value, {}).get("type") == "collection":
+                return urllib.parse.urlencode({"view": value})
+            return urllib.parse.urlencode({"class": value})
+
         resource_samples_encode = [
             (urllib.parse.urlencode({"uri": uri}), label)
             for uri, label in application.resource_samples
         ]
         collection_samples_encode = [
-            (
-                urllib.parse.urlencode(
-                    {"view": value}
-                    if application.pages.pagedict.get(value, {}).get("type") == "collection"
-                    else {"class": value}
-                ),
-                label,
-            )
+            (collection_param(value), label)
             for value, label in application.collection_samples
         ]
+        # 見出しごとのまとまり（2026.11.8）。リンクは コレクション → 検索語 → リソース の順
+        sections = []
+        for sec in getattr(application, "sample_sections", []) or []:
+            links = [("/collection?" + collection_param(v), label, "一覧") for v, label in sec["collection"]]
+            links += [("/search?" + urllib.parse.urlencode({"q": q}), q, "検索") for q in sec["search"]]
+            links += [("/resource?" + urllib.parse.urlencode({"uri": u}), label, "") for u, label in sec["resource"]]
+            sections.append({"title": sec["title"], "describe": sec["describe"], "links": links})
         return render_template(
             'index.html',
             query_samples=application.query_samples,
             resource_samples=resource_samples_encode,
             collection_samples=collection_samples_encode,
+            sections=sections,
             page_title=application.title,
             describe=application.describe,
         )
@@ -282,10 +298,12 @@ def init_app(app):
             uristr,
             str(uri_rdftypes),
             )
-        if uri_rdftypes:
-            uri_rdftype = get_highest_priority_item(uri_rdftypes, application.priority_list)
-        else:
+        if not uri_rdftypes:
             return error(f'{uristr}にはrdf:typeが設定されていない', 'rdf:typeを設定してください')
+        # ページのある種類の中から優先度で選ぶ(2026.11.5)。以前は全部の種類から選んでからページを探したので、
+        # ページの無い種類(skos:Concept など)が選ばれると、ページのある種類(lawo:Keyword)があっても既定のページ(Out・In)になった
+        with_page = [t for t in uri_rdftypes if application.pages.pages_of_type(str(t))]
+        uri_rdftype = get_highest_priority_item(with_page or uri_rdftypes, application.priority_list)
         page_name = application.pages.rdftype2page(uri_rdftype)
         page_title = get_localname(uristr)
         return render_page(

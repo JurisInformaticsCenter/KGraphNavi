@@ -102,6 +102,15 @@ def move_focus(uri, path, sparql_client):
     results = [record['new']['value'] for record in sparql_client.query(query, {"uri": uri})]
     return results[0] if results else None
 
+def focus_uri(uri, pattern, sparql_client):
+    """ガジェットの focus（$uri から ?new を求める SPARQL のパターン）で、問い合わせる uri を求める（2026.11.5）。
+    $uri 自身が ?new の候補にあれば $uri のまま。見つからなければ None"""
+    query = f"select distinct ?new where {{ {pattern} }} limit 50"
+    results = [record['new']['value'] for record in sparql_client.query(query, {"uri": uri}) if 'new' in record]
+    if uri in results:
+        return uri
+    return sorted(results)[0] if results else None
+
 def sparql_result(val):
     return [{"val": {'value': val, 'type': 'text'}}, ]
 
@@ -231,7 +240,7 @@ class GadgetNotFound(Exception):
 class Gadget:
     """Gadget"""
     __slots__ = ("extract_method", "show_method", "height", "sparql_client", "title", "collection_config", "compare_config",
-                 "variants")
+                 "variants", "focus")
     EXTRACTORS = {
         "sparql": "extract_sparql",
         "facet": "extract_facet",
@@ -248,7 +257,7 @@ class Gadget:
     def __repr__(self):
         return f'Config(extract={self.extract_method!r}, show={self.show_method!r})'
 
-    def __init__(self, config_get, config_show, height, title=None, collection=None, compare=None, variants=None):
+    def __init__(self, config_get, config_show, height, title=None, collection=None, compare=None, variants=None, focus=None):
         """Gadgetの生成。get内容の辞書と、show内容の辞書、gadgetの高さ、見出しを受け取る
 
         collection: 一覧の列（var）の値をコレクションとして表示するボタンの設定
@@ -265,6 +274,9 @@ class Gadget:
         self.compare_config = compare
         # 画面で切り替える問い合わせ・表示（[{name, label, get, show}]。URL v.<ガジェット名>=<name>。2026.10.28）
         self.variants = variants or []
+        # 問い合わせる前に、表示中のリソースから別のリソースへ移る SPARQL のパターン（$uri → ?new。2026.11.5）。
+        # 例: 法令の語のページで、同じラベルの判例のタームについてのガジェットを出す
+        self.focus = focus
 
     def with_variant(self, gadget_name, params):
         """variants があれば、URL（v.<ガジェット名>）で選んだもの（既定は最初）の get / show を重ねたガジェットと、
@@ -1003,7 +1015,7 @@ RETRIEVE_FORM = '<form action="/search" method="GET"><div class="search_wrap"><i
 
 class Application:
     """Application"""
-    __slots__ = ("pages", "gadgetset", "title", "describe", "query_samples", "resource_samples", "collection_samples", "priority_list", "focus", "navi", "sparql_client", "data_dir", "data_dirs", "static_dirs", "max_rows", "prefixes", "class_page_cache", "text_search", "text_search_cache", "label_predicate", "saved_store", "saved_max", "topic_config", "compare_views")
+    __slots__ = ("pages", "gadgetset", "title", "describe", "query_samples", "resource_samples", "collection_samples", "priority_list", "focus", "navi", "sparql_client", "data_dir", "data_dirs", "static_dirs", "max_rows", "prefixes", "class_page_cache", "text_search", "text_search_cache", "label_predicate", "saved_store", "saved_max", "topic_config", "compare_views", "sample_sections")
     def __repr__(self):
         return f'Application={self.pages!r}, {self.gadgetset}'
 
@@ -1042,6 +1054,7 @@ class Application:
         self.topic_config = None
         # 列に並べて比べる比べ方（compare:。2026.10.26）
         self.compare_views = None
+        self.sample_sections = []
 
     def resolve_gadget(self, spec):
         if m := re.match(r'(.*)\((.*)\)', spec):
@@ -1109,6 +1122,15 @@ class Application:
                 return f"""
         <section class="gadget">
         <h2 class="gadget-title">{gadget_name}</h2>
+        <p class="gadget-empty">該当するデータがありません</p>
+        </section>
+        """
+        if uri and getattr(gadget, "focus", None):
+            uri = focus_uri(uri, gadget.focus, self.sparql_client)
+            if uri is None:
+                return f"""
+        <section class="gadget">
+        <h2 class="gadget-title">{html_escape(self.gadget_title(gadget_name, gadget))}</h2>
         <p class="gadget-empty">該当するデータがありません</p>
         </section>
         """
@@ -1425,9 +1447,13 @@ class Application:
         if base_collection is not None:
             collection = base_collection
         elif page_def.get("type") == "collection":
+            # query の無いコレクションのページを view= で開いたときは、ページの class を使う（2026.11.8）
+            cparams = params
+            if not page_def.get("query") and not params.get("class") and page_def.get("class"):
+                cparams = {**params, "class": page_def["class"][0]}   # 読み込み時に展開したリスト
             collection = self.get_collection(
                 uri,
-                params=params,
+                params=cparams,
                 query=page_def.get("query"),
             )
         elif page_def.get("collection") == "instances" and uri:
@@ -1837,6 +1863,7 @@ def setconfig(config, base_dir=None):
         "get",
         "show",
         "variants",   # 画面で切り替える問い合わせ・表示 [{name, label, get, show}]（2026.10.28）
+        "focus",      # 問い合わせる前に $uri から移る先（?new）を求める SPARQL のパターン（2026.11.5）
     }
     
     configs = load_imports(config)
@@ -1858,6 +1885,7 @@ def setconfig(config, base_dir=None):
     label_predicate = None
     prefixes = {}
     query_samples = []
+    sample_sections = []
     resource_samples = []
     collection_samples = []
     priority_list = []
@@ -1886,6 +1914,20 @@ def setconfig(config, base_dir=None):
                     parse_uri_sample(value)
                     for value in sample.get("collection", [])]
                 query_samples = list(sample.get("search", []) or [])
+                # 見出しごとのまとまり（2026.11.8）: sections: [{title, describe, search, collection, resource}]
+                for sec in sample.get("sections", []) or []:
+                    if not isinstance(sec, dict):
+                        raise ConfigError(f"sample.sections の要素は辞書で書く: {sec!r}")
+                    unknown_sec = set(sec) - {"title", "describe", "search", "collection", "resource"}
+                    if unknown_sec:
+                        raise ConfigError(f"sample.sections の未知のキー: {sorted(unknown_sec)}")
+                    sample_sections.append({
+                        "title": sec.get("title", ""),
+                        "describe": sec.get("describe", ""),
+                        "search": list(sec.get("search", []) or []),
+                        "collection": [parse_uri_sample(v) for v in sec.get("collection", []) or []],
+                        "resource": [parse_uri_sample(v) for v in sec.get("resource", []) or []],
+                    })
             if "priority" in config:
                 priority_list = config["priority"]
             if "title" in config:
@@ -2006,6 +2048,7 @@ def setconfig(config, base_dir=None):
                 collection=gadget_collection,
                 compare=gadget_compare,
                 variants=variants,
+                focus=config.get("focus"),
             )
         else: # 未知のdef
             raise ConfigError(f"未知のdef: {deftype!r}(page または gadget を指定してください)")
@@ -2047,6 +2090,7 @@ def setconfig(config, base_dir=None):
         "querysamples": query_samples,
         "resource_samples": resource_samples,
         "collection_samples": collection_samples,
+        "sample_sections": sample_sections,
         "prioritylist": priority_list,
         "rdfstore": rdfstore,
         "labelpredicate": label_predicate,
@@ -2164,6 +2208,7 @@ def build_application(
     application.prefixes = {**STANDARD_PREFIXES, **(cfg["prefixes"] or {})}
     application.topic_config = cfg.get("topic")
     application.compare_views = cfg.get("compare") or []
+    application.sample_sections = cfg.get("sample_sections") or []
     resolve_compare_types(application.compare_views, lambda t: expand_prefixed(t, application.prefixes))
     if application.topic_config:   # 上の帯に「トピック」の入り口
         application.navi = application.navi.replace(
