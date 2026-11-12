@@ -36,6 +36,26 @@
                   collection: {facet: reflaw_core_clause}}   # ノードから、その値で絞り込んだコレクションへ
       layout: bipartite
 
+見た目の割り当て（形・色・大きさ。2026.11.9）::
+
+    show:
+      type: graph
+      ...
+      nodes:
+        entity: {label: label, kind: 判例, x: year, shape: ellipse,
+                 attrs: {result: resultlabel, instance: instancelabel}}   # 属性（色の切り替えに使う）{名前: 変数}
+        article: {label: articlelabel, kind: 条, shape: round-rectangle}
+      encode:
+        color: [kind, result, instance, year]    # 画面で選べる色の意味（kind=種類、year=x の値、component=連結成分、属性の名前）
+        size: [degree, pagerank]                 # 画面で選べる大きさ（indegree / outdegree / degree / strength / pagerank / none / 数の属性）
+        labels: {result: 裁判の結果, instance: 審級}   # 選択肢の名前
+        color_default: kind                      # 最初の色（省略時は color の先頭）
+        size_default: degree                     # 最初の大きさ（省略時は size の値、なければ size の先頭）
+
+    形は種類ごとに決まる（shape を省略すると種類の順に ellipse・round-rectangle・diamond… を割り当てる）。
+    色・大きさは画面の「色」「大きさ」で切り替える（templates/js/encode.js）。encode を省略しても、
+    種類・年・連結成分・属性の色と、つながり・PageRank の大きさを選べる。
+
 片側への射影（同じ判例で一緒に参照される条どうし／同じ条を参照する判例どうし）::
 
     show:
@@ -82,10 +102,19 @@ LABELLED_NODES = 30
 MEMBERSHIP_BATCH = 300
 
 SHOW_KEYS = {"type", "edges", "nodes", "outside", "layout", "max_nodes", "size", "height", "isolated",
-             "project", "metrics", "select_class"}
+             "project", "metrics", "select_class", "encode"}
 PROJECT_KEYS = {"keep", "via", "min_weight", "max_shared", "label"}
 EDGE_KEYS = {"from", "to", "directed", "label"}
-NODE_KEYS = {"label", "kind", "x", "in_collection", "min_degree", "collection"}
+NODE_KEYS = {"label", "kind", "x", "in_collection", "min_degree", "collection", "attrs", "shape"}
+ENCODE_KEYS = {"color", "size", "labels", "color_default", "size_default"}
+# Cytoscape.js のノードの形（templates/js/encode.js の SHAPES と同じ順で、種類に既定の形を割り当てる）
+SHAPES = ("ellipse", "round-rectangle", "diamond", "hexagon", "triangle", "barrel", "tag", "star", "vee",
+          "rectangle", "round-triangle", "pentagon", "octagon")
+DEFAULT_SHAPES = SHAPES[:9]
+# 色・大きさの組み込みの選択肢の名前
+BUILTIN_COLORS = {"kind": "種類", "year": "年", "component": "連結成分"}
+BUILTIN_SIZES = {"indegree": "参照されている数", "outdegree": "参照している数", "degree": "つながりの数",
+                 "strength": "共有の延べ数", "pagerank": "PageRank", "none": "同じ大きさ"}
 NODE_COLLECTION_KEYS = {"facet", "class", "view", "label"}
 
 
@@ -124,6 +153,15 @@ def validate_graph_show(name, show):
                     raise ValueError
             except (TypeError, ValueError) as e:
                 raise ConfigError(f"gadget({name})のshow(graph)の nodes.{var}.min_degree は正の整数です") from e
+        if "attrs" in node:
+            attrs = node["attrs"]
+            if isinstance(attrs, list):
+                attrs = {str(v): v for v in attrs}
+            if not isinstance(attrs, dict) or not all(re.fullmatch(r"\w+", str(k)) and isinstance(v, str)
+                                                       for k, v in attrs.items()):
+                raise ConfigError(f"gadget({name})のshow(graph)の nodes.{var}.attrs は {{名前: 変数}} の辞書（名前は英数字）です")
+        if "shape" in node and node["shape"] not in SHAPES:
+            raise ConfigError(f"gadget({name})のshow(graph)の nodes.{var}.shape は {' / '.join(SHAPES)} のいずれかです")
         if "collection" in node:
             conf = node["collection"]
             if not isinstance(conf, dict) or not conf.get("facet") or not re.fullmatch(r"[\w.-]+", str(conf["facet"])):
@@ -148,6 +186,18 @@ def validate_graph_show(name, show):
                         raise ValueError
                 except (TypeError, ValueError) as e:
                     raise ConfigError(f"gadget({name})のshow(graph)の project.{key} は正の整数です") from e
+    encode = show.get("encode")
+    if encode is not None:
+        if not isinstance(encode, dict):
+            raise ConfigError(f"gadget({name})のshow(graph)の encode は辞書です")
+        unknown = set(encode) - ENCODE_KEYS
+        if unknown:
+            raise ConfigError(f"gadget({name})のshow(graph)の encode に未知のキー: {sorted(unknown)}")
+        for key in ("color", "size"):
+            if key in encode and (not isinstance(encode[key], list) or not all(isinstance(v, str) for v in encode[key])):
+                raise ConfigError(f"gadget({name})のshow(graph)の encode.{key} は名前のリストです")
+        if "labels" in encode and not isinstance(encode["labels"], dict):
+            raise ConfigError(f"gadget({name})のshow(graph)の encode.labels は {{名前: 表示名}} の辞書です")
     if "metrics" in show and not isinstance(show["metrics"], bool):
         raise ConfigError(f"gadget({name})のshow(graph)の metrics は true / false です")
     for key, choices in (("outside", OUTSIDE_MODES), ("layout", LAYOUTS), ("size", SIZE_MODES),
@@ -175,6 +225,66 @@ def node_settings(show):
                 conf.setdefault("in_collection", var == "entity")
                 settings[var] = conf
     return settings
+
+
+def node_attrs(conf):
+    """ノードの設定の attrs を {名前: 変数} にする"""
+    attrs = conf.get("attrs") or {}
+    if isinstance(attrs, list):
+        return {str(v): v for v in attrs}
+    return dict(attrs)
+
+
+def kind_shapes(show, kinds):
+    """種類 → 形。nodes の shape を優先し、無ければ種類の順に既定の形"""
+    chosen = {}
+    for conf in node_settings(show).values():
+        if conf.get("shape"):
+            chosen.setdefault(str(conf["kind"]), conf["shape"])
+    rest = [s for s in DEFAULT_SHAPES if s not in chosen.values()] or list(DEFAULT_SHAPES)
+    shapes = {}
+    for kind in kinds:
+        if kind in chosen:
+            shapes[kind] = chosen[kind]
+        else:
+            shapes[kind] = rest[len([k for k in shapes if k not in chosen]) % len(rest)]
+    return shapes
+
+
+def encode_options(show, graph):
+    """画面で選べる色・大きさの選択肢と既定（templates/js/encode.js に渡す）"""
+    encode = show.get("encode") or {}
+    labels = {**BUILTIN_COLORS, **BUILTIN_SIZES, **{str(k): str(v) for k, v in (encode.get("labels") or {}).items()}}
+    attr_names = list(dict.fromkeys(a for conf in node_settings(show).values() for a in node_attrs(conf)))
+    nodes = graph["nodes"]
+    has_year = any(n["x"] is not None for n in nodes)
+    if "color" in encode:
+        colors = [c for c in encode["color"] if c in BUILTIN_COLORS or c in attr_names]
+    else:
+        colors = ["kind"] + (["year"] if has_year else []) + attr_names + (["component"] if graph.get("metrics") else [])
+    # 値の種類が1つしかない色（例: 種類が判例だけ）は、先頭でなければ選択肢に残す（凡例で値が分かる）
+    numeric_attrs = [a for a in attr_names
+                     if any(a in n.get("attrs", {}) for n in nodes)
+                     and all(to_number(n["attrs"][a]) is not None for n in nodes if a in n.get("attrs", {}))]
+    if "size" in encode:
+        sizes = [s for s in encode["size"] if s in BUILTIN_SIZES or s in numeric_attrs]
+    else:
+        directed = graph.get("directed")
+        sizes = (["indegree", "outdegree"] if directed else ["strength", "degree"] if graph.get("project") else ["degree"])
+        if graph.get("metrics"):
+            sizes.append("pagerank")
+        sizes.append("none")
+    size_default = encode.get("size_default") or show.get("size") or (sizes[0] if sizes else "none")
+    if size_default not in sizes:
+        sizes.insert(0, size_default)
+    color_default = encode.get("color_default") or (colors[0] if colors else "kind")
+    return {
+        "color": [{"name": c, "label": labels.get(c, c), **({"type": "number"} if c == "year" or c in numeric_attrs
+                                                            else {"type": "category"})} for c in colors],
+        "size": [{"name": s, "label": labels.get(s, s)} for s in sizes],
+        "colorDefault": color_default,
+        "sizeDefault": size_default,
+    }
 
 
 def outside_mode(show, params):
@@ -224,6 +334,11 @@ def collect_graph(rows, show):
         x_cell = row.get(conf.get("x")) if conf.get("x") else None
         x = to_number((x_cell or {}).get("value"))
         node = nodes.get(node_id)
+        attrs = {}
+        for attr, attr_var in node_attrs(conf).items():
+            value = (row.get(attr_var) or {}).get("value")
+            if value not in (None, ""):
+                attrs[attr] = value
         if node is None:
             node = nodes[node_id] = {
                 "id": node_id,
@@ -233,8 +348,11 @@ def collect_graph(rows, show):
                 "x": x,
                 "uri": node_id if cell.get("type") == "uri" else None,
                 "in_collection": conf["in_collection"],
+                "attrs": attrs,
             }
         else:
+            for attr, value in attrs.items():
+                node.setdefault("attrs", {}).setdefault(attr, value)
             if not node["label"] and label:
                 node["label"] = label
             if node["x"] is None and x is not None:
@@ -408,6 +526,7 @@ def build_graph(rows, show, *, collection=None, params=None, members=None):
         "skipped_hubs": skipped_hubs,
         "metrics": metrics,
         "directed": any(e["directed"] for e in edges.values()),
+        "show": show,
     }
 
 
@@ -705,9 +824,11 @@ KIND_COLORS = ["#2563eb", "#d97706", "#059669", "#db2777", "#7c3aed", "#0891b2",
 OUTSIDE_COLOR = "#9ca3af"
 
 
-def graph_payload(graph):
+def graph_payload(graph, show=None):
     """Cytoscape.js に渡す JSON（elements と表示の設定）"""
+    show = show or graph.get("show") or {}
     colors = {kind: KIND_COLORS[i % len(KIND_COLORS)] for i, kind in enumerate(graph["kinds"])}
+    shapes = kind_shapes(show, graph["kinds"])
     metrics_by_id = {row["id"]: row for row in ((graph.get("metrics") or {}).get("rows") or [])}
     elements = []
     for node in graph["nodes"]:
@@ -720,7 +841,17 @@ def graph_payload(graph):
             "size": node["size"],
             "indegree": node["indegree"],
             "outdegree": node["outdegree"],
+            "shape": shapes.get(node["kind"], "ellipse"),
+            "m_indegree": node["indegree"],
+            "m_outdegree": node["outdegree"],
+            "m_degree": node["degree"],
+            "m_strength": node["strength"],
         }
+        for attr, value in (node.get("attrs") or {}).items():
+            data["a_" + attr] = value
+            number = to_number(value)
+            if number is not None:
+                data["m_" + attr] = number
         if node["uri"]:
             data["href"] = f"/resource?uri={quote(node['uri'], safe='')}"
         if node["x"] is not None:
@@ -732,6 +863,7 @@ def graph_payload(graph):
         metric = metrics_by_id.get(node["id"])
         if metric:
             data["pagerank"] = round(metric["pagerank"] * len(metrics_by_id), 4)
+            data["m_pagerank"] = data["pagerank"]
             data["component"] = metric["component"]
         element = {"data": data, "classes": " ".join(
             c for c, on in (("outside", node["outside"]), ("labelled", node.get("labelled")),
@@ -759,6 +891,7 @@ def graph_payload(graph):
         "positions": graph.get("positions", {}),
         "size_range": [min(sizes), max(sizes)],
         "legend": [{"kind": k, "color": c} for k, c in colors.items()],
+        "encode": {**encode_options(show, graph), "colors": {"kind": colors}},
     }
 
 
@@ -804,7 +937,7 @@ def render_graph(graph, params=None, height=None):
             message = "コレクションの中のつながりはありません。"
         return (f'<p class="gadget-empty">{message}</p>' + _outside_toggle(graph, params))
     element_id = f"kg-graph-{uuid.uuid4().hex[:8]}"
-    payload = graph_payload(graph)
+    payload = graph_payload(graph, graph.get("show"))
     height = int(height or 600)
     summary = f'ノード {len(graph["nodes"]):,}・辺 {len(graph["edges"]):,}'
     notes = []
@@ -832,6 +965,7 @@ def render_graph(graph, params=None, height=None):
     <span class="kg-graph-summary">{summary}</span>
     <span class="kg-graph-legend">{legend}</span>
     <span class="kg-graph-tools">
+      <span class="kg-graph-encode"></span>
       <label>配置 <select class="kg-graph-layout">{layouts}</select></label>
       <button type="button" class="kg-graph-fit">全体を表示</button>
       <button type="button" class="kg-graph-select" aria-pressed="false"

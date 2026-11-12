@@ -34,6 +34,8 @@ from .collection import AnyCollection, TextCondition
 from .saved import SavedCollectionStore, DEFAULT_SAVE_MAX
 from .topic import topic_settings
 from .compare import compare_settings, resolve_types as resolve_compare_types, COMPARE_MAX
+from .explore import explore_settings, resolve_kind_types
+from .textlink import textlink_settings, TextLinker, DEFAULT_LABELS
 from .collection import Collection, bif_text_expression
 from .errors import ConfigError, GadgetError, ShowError, KGraphError, SparqlError
 from .terms import predicate_term, literal_term, language_tag, is_iri, iri_term
@@ -177,7 +179,7 @@ def prepare_columns(content, columns):
     return result
 
 # static_dirs の名前に使えないもの（KGraphNavi のURL）
-RESERVED_STATIC_NAMES = {"templates", "data", "resource", "collection", "search", "graph"}
+RESERVED_STATIC_NAMES = {"templates", "data", "resource", "collection", "search", "graph", "explore", "textlink", "api"}
 
 # 1つのガジェットで取得する行数の既定の上限（設定 max_rows で変更可）
 DEFAULT_MAX_ROWS = 5000
@@ -1011,11 +1013,13 @@ SUPPORTED_GET_TYPES = set(Gadget.EXTRACTORS)
 SUPPORTED_SHOW_TYPES = {"vtable", "htable", "facet", "rank", "graph"} | set(Gadget.SHOWERS)
 
 TOPIC_FORM = '<form action="/topic" method="GET"><div class="search_wrap"><input name="q" type="search" placeholder="トピックのキーワード" /><button type="submit">トピック</button></div></form>'
+TEXTLINK_LINK = '<li class="nav_left"><a href="/textlink" title="{tip}">{title}</a></li>'
+EXPLORE_LINK = '<li class="nav_left"><a href="/explore" title="語を入れて、探索グラフを空の状態から始めます（リソースのページからは、見出しの右の「この○○から探索グラフで広げる」）">探索</a></li>'
 RETRIEVE_FORM = '<form action="/search" method="GET"><div class="search_wrap"><input name="q" type="search" placeholder="検索キーワード" /><button type="submit">検索</button><div class="search-modes"><label><input type="radio" name="mode" value="partial" checked>部分</label><label><input type="radio" name="mode" value="perfect">完全</label></div></div></form>'
 
 class Application:
     """Application"""
-    __slots__ = ("pages", "gadgetset", "title", "describe", "query_samples", "resource_samples", "collection_samples", "priority_list", "focus", "navi", "sparql_client", "data_dir", "data_dirs", "static_dirs", "max_rows", "prefixes", "class_page_cache", "text_search", "text_search_cache", "label_predicate", "saved_store", "saved_max", "topic_config", "compare_views", "sample_sections")
+    __slots__ = ("pages", "gadgetset", "title", "describe", "query_samples", "resource_samples", "collection_samples", "priority_list", "focus", "navi", "sparql_client", "data_dir", "data_dirs", "static_dirs", "max_rows", "prefixes", "class_page_cache", "text_search", "text_search_cache", "label_predicate", "saved_store", "saved_max", "topic_config", "compare_views", "sample_sections", "explore_config", "label_lang", "textlinker", "search_label_predicate")
     def __repr__(self):
         return f'Application={self.pages!r}, {self.gadgetset}'
 
@@ -1047,6 +1051,8 @@ class Application:
         self.text_search_cache = {}
         # ラベルの predicate（検索語の条件に使う）
         self.label_predicate = "rdfs:label"
+        self.search_label_predicate = None   # 検索で見るラベル（設定 search_label。無ければ label。2026.11.11）
+        self.label_lang = None    # 表示に使うラベルの言語（設定 label_lang。パンくずの名前などで優先する）
         # 名前を付けて保存したコレクション（設定 saved_collections_dir・saved_collection_max。2026.10.19）
         self.saved_store = None
         self.saved_max = DEFAULT_SAVE_MAX
@@ -1054,6 +1060,8 @@ class Application:
         self.topic_config = None
         # 列に並べて比べる比べ方（compare:。2026.10.26）
         self.compare_views = None
+        self.explore_config = None
+        self.textlinker = None   # テキストにリンクを付ける（設定 textlink:。2026.11.10）
         self.sample_sections = []
 
     def resolve_gadget(self, spec):
@@ -1097,7 +1105,9 @@ class Application:
         Virtuoso の全文索引（bif:contains）が使えればそれで先に絞る。全文索引は語単位の一致なので、
         collection を渡すと、全文索引で1件も無いときは CONTAINS だけで探す条件にする（text_search: auto のとき）
         """
-        label_predicate = getattr(self, "label_predicate", None) or "rdfs:label"
+        # 検索は search_label（例 rdfs:label|skos:altLabel。異表記でも引ける）を見る。無ければ label（2026.11.11）
+        label_predicate = (getattr(self, "search_label_predicate", None) or getattr(self, "label_predicate", None)
+                           or "rdfs:label")
         method = self.text_search_method(label_predicate)
         condition = TextCondition(text, label_predicate, method=method, exact=exact)
         if (method == "bif" and collection is not None
@@ -1824,6 +1834,7 @@ def setconfig(config, base_dir=None):
     APPLICATION_KEYS = {
         "rdfstore",
         "label",
+        "search_label",  # 検索で見るラベル（例 rdfs:label|skos:altLabel。2026.11.11）
         "sample",
         "priority",
         "title",
@@ -1841,6 +1852,8 @@ def setconfig(config, base_dir=None):
         "text_search", # ファセットの候補の検索: auto（既定）/ bif / contains
         "topic",       # キーワードからトピックのコレクションを作る（kgraphnavi/topic.py。2026.10.26）
         "compare",     # 少数のリソースを列に並べて比べる比べ方（kgraphnavi/compare.py。2026.10.26）
+        "explore",     # 探索グラフ: 種からクリックで広げる関係（kgraphnavi/explore.py。2026.11.9）
+        "textlink",    # テキストの参照（判例の引用）をリンクにする画面と Web API（kgraphnavi/textlink.py。2026.11.10）
     }
     PAGE_KEYS = {
         "def",
@@ -1882,7 +1895,10 @@ def setconfig(config, base_dir=None):
     text_search = "auto"
     topic = None
     compare = None
+    explore = None
+    textlink = None
     label_predicate = None
+    search_label_predicate = None
     prefixes = {}
     query_samples = []
     sample_sections = []
@@ -1905,6 +1921,8 @@ def setconfig(config, base_dir=None):
                 rdfstore = config["rdfstore"]
             if "label" in config:
                 label_predicate = config["label"]
+            if "search_label" in config:
+                search_label_predicate = config["search_label"]
             if "sample" in config:
                 sample = config["sample"] or {}
                 resource_samples = [
@@ -1974,6 +1992,16 @@ def setconfig(config, base_dir=None):
             if "compare" in config:
                 try:
                     compare = compare_settings(config["compare"])
+                except ValueError as e:
+                    raise ConfigError(str(e)) from e
+            if "explore" in config:
+                try:
+                    explore = explore_settings(config["explore"])
+                except ValueError as e:
+                    raise ConfigError(str(e)) from e
+            if "textlink" in config:
+                try:
+                    textlink = textlink_settings(config["textlink"], base_dir)
                 except ValueError as e:
                     raise ConfigError(str(e)) from e
             if "max_rows" in config:
@@ -2094,6 +2122,8 @@ def setconfig(config, base_dir=None):
         "prioritylist": priority_list,
         "rdfstore": rdfstore,
         "labelpredicate": label_predicate,
+        "searchlabelpredicate": search_label_predicate,
+        "label_lang": label_lang,
         "sparql_endpoint": sparql_endpoint,
         "prefixes": prefixes,
         "frontend_base_url": frontend_base_url,
@@ -2106,6 +2136,8 @@ def setconfig(config, base_dir=None):
         "text_search": text_search,
         "topic": topic,
         "compare": compare,
+        "explore": explore,
+        "textlink": textlink,
     }
 
 
@@ -2205,11 +2237,25 @@ def build_application(
     application.saved_max = cfg.get("saved_collection_max") or DEFAULT_SAVE_MAX
     application.text_search = cfg.get("text_search", "auto")
     application.label_predicate = label_predicate
+    application.search_label_predicate = cfg.get("searchlabelpredicate")
+    application.label_lang = cfg.get("label_lang")
     application.prefixes = {**STANDARD_PREFIXES, **(cfg["prefixes"] or {})}
     application.topic_config = cfg.get("topic")
     application.compare_views = cfg.get("compare") or []
     application.sample_sections = cfg.get("sample_sections") or []
     resolve_compare_types(application.compare_views, lambda t: expand_prefixed(t, application.prefixes))
+    application.explore_config = cfg.get("explore")
+    if application.explore_config:  # 上の帯に「探索」の入り口
+        resolve_kind_types(application.explore_config, lambda t: expand_prefixed(t, application.prefixes))
+        # 帯が混まないよう、入口はリンクにする（語の入力は探索グラフの画面の左上）
+        application.navi = application.navi.replace(
+            '<li class="nav_right search_item">', f'{EXPLORE_LINK}<li class="nav_right search_item">', 1)
+    if cfg.get("textlink"):   # 上の帯に「判例リンク」の入り口（モジュールは初めて使うときに読み込む）
+        application.textlinker = TextLinker(cfg["textlink"])
+        application.navi = application.navi.replace(
+            '<li class="nav_right search_item">',
+            TEXTLINK_LINK.format(title=html_escape(cfg["textlink"]["title"]),
+                                 tip=html_escape((cfg["textlink"].get("labels") or {}).get("nav_tip") or DEFAULT_LABELS["nav_tip"])) + '<li class="nav_right search_item">', 1)
     if application.topic_config:   # 上の帯に「トピック」の入り口
         application.navi = application.navi.replace(
             '<li class="nav_right search_item">',

@@ -1,4 +1,4 @@
-# キーワードからトピックのコレクションを作る（設計メモ。2026.10.26）
+# キーワードからトピックのコレクションを作る（/topic。試作）
 
 ## ねらい
 
@@ -36,46 +36,7 @@
 
 `|` で区切るといずれかの語（`/topic?q=パワーハラスメント|パワハラ`）。部分一致なので「パワーハラスメント行為」なども入る。
 
-## データごとの違い
-
-| | DBpedia（config/dbpedia.yaml） | 判例（hanrei） |
-|---|---|---|
-| 要素 | 記事 | 判例文書 |
-| 語 | ラベルと要約（bif:contains） | ターム（略語・派生語に広げる）と本文の出現数 |
-| リンク | カテゴリ・山脈・所在地 | 中心の参照の条（主な条・補助条） |
-| 関連語・文脈語 | （まだ無い） | いじめ・嫌がらせなど（本文の近さで選ぶ） |
-| 作り方 | SPARQL だけ（kgraphnavi/topic.py の TopicBuilder） | 外のコマンド（builder: command。hanrei の src/topic_keyword.py --json を kgraphnavi/topic.py の CommandTopicBuilder が呼ぶ）。&builder=sparql で SPARQL の版も出せる |
-
-## これから（ToDo。2026.10.26 にいったん置いた）
-
-- 待ち時間（判例は1回2〜3分）: 裏で作って、できたら表示する。または本文の語の数を全件分先に数えておき grep を使わない
-- 画面で直した定義を topic_def.csv に入れるボタン（src/topic_keyword.py --apply）。トピックの一覧・ページ・広げ・争点の仕組みに乗せる
-- 関連語だけで入った判例（パワハラで 112件）の確からしさ: 事件の種類・当事者の呼び名などで混じり物を外す
-
-- 判例の版を同じ画面に載せる（設定で「作り手」を外のコマンドに切り替え、定義と所属を読み込む）
-- 定義を RDF で持つ（共通の語彙: トピック、条件の種類・プロパティ・値・役割）
-- 引用・内部リンク（dbo:wikiPageWikiLink）で1段広げる
-- 関連語（本文の語）を SPARQL の版にも入れるか
-
-## 外のコマンドの版（builder: command）
-
-重い計算（本文の語の数え方、全件の確かさ）を外のコマンドに任せる。KGraphNavi は次の形でコマンドを呼び、結果の JSON を読んで同じ画面に出す
-（kgraphnavi/topic.py の CommandTopicBuilder。同じ引数の結果は KGraphNavi が動いている間は覚えておく）。
-
-```yaml
-- topic:
-    builder: command
-    command: ["{python}", "src/topic_keyword.py", "{q}", "--json", "{json}"]   # {python} は KGraphNavi の Python
-    cwd: ~/nii/hanrei
-    timeout: 900
-```
-
-- 引数: キーワード（`|` の2つめ以降は `--add-word`）、画面で選び直したもの `--add-word` `--drop-word` `--add-related`
-  `--add-clause`（主なリンク）`--aux-clause` `--drop-clause`（リンクの id）
-- JSON: `keyword, seed_count, total, words[{word,kind}], links[{id,uri,label,prop,count,df,lift,role}], related[{word,core}],
-  context[語], members[{uri,label,level,via}]`
-
-## 画面（2026.11.1 に組み直した）
+## 画面
 
 - **1. 何をしたか**: 語をいくつに広げたか、種の要素の数、主なリンク（条）・補助リンクの数、本文で数えた語の数、確かさごとの件数と決め方。
   広げた語・選んだ条は「見る」で開く
@@ -86,4 +47,22 @@
   「直す」（語・関連語・条の選び直し。開いたときだけ出る）。選んだものは改行で区切って uris で送る（フォームの項目の数の上限のため）
 - **作っている途中**: 外のコマンドは裏で動かし、作り手が標準エラーに出す「@@進み …」の段階と経過秒を表示する（/topic/status を2秒ごとに読む）。
   出来上がるとページが切り替わる。結果は KGraphNavi が動いている間は覚えておく
-- 作り手の JSON に足したもの: members[].caseno, court, date, casename, clauses[{label, role}], words[[語, 回数]], related[[語, 回数]], name_hit、summary
+
+## 外のコマンドで作る（builder: command）
+
+重い計算（本文の語の数え方、全件の確かさ）を外のコマンドに任せる。KGraphNavi は次の形でコマンドを呼び、結果の JSON を読んで同じ画面に出す
+（kgraphnavi/topic.py の CommandTopicBuilder。同じ引数の結果は KGraphNavi が動いている間は覚えておく）。
+
+```yaml
+- topic:
+    builder: command
+    command: ["{python}", "build_topic.py", "{q}", "--json", "{json}"]   # {python} は KGraphNavi の Python、{q} はキーワード、{json} は結果を書くファイル
+    cwd: ~/path/to/builder           # コマンドを実行するフォルダ
+    timeout: 900
+```
+
+- 引数: キーワード（`|` の2つめ以降は `--add-word`）、画面で選び直したもの `--add-word` `--drop-word` `--add-related`
+  `--add-clause`（主なリンク）`--aux-clause` `--drop-clause`（リンクの id）
+- JSON: `keyword, seed_count, total, words[{word,kind}], links[{id,uri,label,prop,count,df,lift,role}], related[{word,core}],
+  context[語], members[{uri,label,level,via}]`
+- 判例のように要素を詳しく出すときは、members に `caseno, court, date, casename, clauses[{label, role}], words[[語, 回数]], related[[語, 回数]], name_hit` と、全体の `summary` も書ける

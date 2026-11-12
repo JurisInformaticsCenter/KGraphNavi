@@ -39,3 +39,13 @@
 #     link_properties: [caselawp:reflawCore]
 #     text_search: contains
 #     seed_max: 5000
+
+# テキストの判例の引用を判例のページへのリンクにする画面（/textlink）と Web API（/api/textlink）。
+# hanrei の caselinker と、照合の索引（判例LODの Release の caselink-index.sqlite）を使う（docs/textlink.md）
+# - textlink:
+#     module: caselinker
+#     path: ~/nii/hanrei                     # caselinker のあるフォルダ（pip で入れたなら不要）
+#     index: ~/nii/hanrei/data/release/caselink-index.sqlite
+#     title: 判例リンク
+#     min_confidence: 低                     # 既定の確かさの下限（高・中・低）
+#     cors: "*"                              # 別のサイト（ブックマークレットなど）から API を呼ぶとき

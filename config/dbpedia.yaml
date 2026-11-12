@@ -23,6 +23,7 @@
 #   トピック（/topic） ....... キーワード（例: stratovolcano）から、語とカテゴリでコレクションを作る（topic:）
 #   並べて比べる（/compare） . 2〜4 の山を列に並べ、カテゴリの共通・違いを見る（compare:）
 #   固定の一覧（get: list） .. Overview の「リンク」
+#   テキストのリンク（/textlink） 貼り付けた英語・日本語の文の山・山脈・国・人の名前をページへのリンクに（textlink:）
 #
 # DBpedia は大きな知識グラフなので、集計の重い問い合わせは時間がかかったり、
 # エンドポイントの制限（実行時間・行数）で失敗したりすることがあります。
@@ -44,6 +45,52 @@
         link_properties: [dct:subject, dbo:mountainRange, dbo:locatedInArea]
         total: 6000000      # 全体の記事の数（およそ）。カテゴリの偏りの目安に使う
         seed_max: 2000
+# テキストの語をリソースのページへのリンクにする（/textlink・/api/textlink。kgraphnavi/labellinker.py、docs/textlink.md。2026.11.10）
+#   山・山脈・国・初登頂した人のラベル（英語・日本語）と別名（Wikipedia のリダイレクト）を辞書にし、テキストの中を最長一致で探す。
+#   同じラベルのリソースが複数あれば、重み（記事の長さ）で選び、確かさを下げる。辞書は最初に一度作る（数分）:
+#     python3 -m kgraphnavi.labellinker build config/dbpedia.yaml
+-   textlink:
+        module: kgraphnavi.labellinker
+        index: ../data/dbpedia-labels.sqlite
+        title: リンク
+        labels:
+            nav_tip: 貼り付けたテキストの山・山脈・国・人の名前を、DBpedia のページへのリンクにします
+        options:
+            min_length: 3
+            min_length_cjk: 2
+            stopwords: [The, Mount, Mountain, Peak, Range, Island, North, South, East, West]
+            page_size: 10000
+            queries:
+                - name: 山
+                  query: |
+                      SELECT ?s ?label ?score WHERE {
+                        ?s a dbo:Mountain ; rdfs:label ?label . FILTER(lang(?label) IN ("en", "ja"))
+                        OPTIONAL { ?s dbo:wikiPageLength ?score }
+                      } ORDER BY ?s ?label
+                - name: 山（別名）
+                  query: |
+                      SELECT ?s ?label ?score WHERE {
+                        ?r dbo:wikiPageRedirects ?s . ?s a dbo:Mountain . ?r rdfs:label ?label . FILTER(lang(?label) = "en")
+                        OPTIONAL { ?s dbo:wikiPageLength ?score }
+                      } ORDER BY ?s ?label
+                - name: 山脈
+                  query: |
+                      SELECT ?s ?label ?score WHERE {
+                        ?s a dbo:MountainRange ; rdfs:label ?label . FILTER(lang(?label) IN ("en", "ja"))
+                        OPTIONAL { ?s dbo:wikiPageLength ?score }
+                      } ORDER BY ?s ?label
+                - name: 国
+                  query: |
+                      SELECT ?s ?label ?score WHERE {
+                        ?s a dbo:Country ; rdfs:label ?label . FILTER(lang(?label) IN ("en", "ja"))
+                        OPTIONAL { ?s dbo:wikiPageLength ?score }
+                      } ORDER BY ?s ?label
+                - name: 初登頂した人
+                  query: |
+                      SELECT DISTINCT ?s ?label ?score WHERE {
+                        [] dbo:firstAscentPerson ?s . ?s rdfs:label ?label . FILTER(lang(?label) IN ("en", "ja"))
+                        OPTIONAL { ?s dbo:wikiPageLength ?score }
+                      } ORDER BY ?s ?label
 # 少数（2〜4）のリソースを列に並べて比べる（/compare?uri=A&uri=B…。kgraphnavi/compare.py、docs/compare.md。2026.10.27）
 #   山のコレクションの一覧で「比べる」の列にチェックを入れて「並べて比べる」、または URL で直接。
 #   gadget の行は各列にそのガジェットの表、align の行はその変数の値で行をそろえて、どの山にあるか（違う行を色付け）

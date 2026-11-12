@@ -34,3 +34,6 @@ config/saved_collections/
 # 作業用（2026.10.27）
 _old/
 tmp_out/
+
+# 開発用の文書（ToDo・設計メモ・スライドなど。GitHub に上げない）（2026.11.12）
+dev/

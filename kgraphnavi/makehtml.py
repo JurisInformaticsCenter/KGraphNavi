@@ -11,7 +11,9 @@ import re
 import logging
 import json
 import uuid
-from flask import render_template
+from html import escape
+from urllib.parse import urlencode
+from flask import render_template, request, has_request_context
 from .misc import hash_color
 logger = logging.getLogger(__name__)
 
@@ -227,6 +229,7 @@ JSGRID = """    <link type="text/css" rel="stylesheet" href="https://cdnjs.cloud
 
 # ネットワーク図（show: type: graph）。描画は templates/js/graph.js の kgDrawGraph
 CYTOSCAPE = """    <script src="https://cdn.jsdelivr.net/npm/cytoscape@3/dist/cytoscape.min.js"></script>
+    <script src="/templates/js/encode.js"></script>
     <script src="/templates/js/graph.js"></script>
 """
 
@@ -261,8 +264,75 @@ LIBRARIES = {
     "chartjs": CHARTJS,
 }
 
-def make_html(content, title="タイトル", navi="", libraries=None, category=None):
-    """HTMLを組み立てる"""
+# --------------------------------------------------
+# パンくずリスト（2026.11.9）
+#   たどったページの経路（履歴型）をブラウザの sessionStorage に記録し、templates/js/breadcrumb.js が表示する。
+#   サーバは、ページの「同じ対象か」を判定するキー・名前・種類と、リソースのページの所属コレクションへのリンクを渡す。
+# --------------------------------------------------
+
+# 対象を決める URL の引数。これ以外（ファセット f.*、page、tab、graph.* など）が変わっても同じ段とみなし、段を増やさずに URL を置き換える
+BREADCRUMB_IDENTITY = ("uri", "class", "view", "saved", "from")
+# q が対象を決めるパス（/collection の q はコレクション内の絞り込みなので含めない）
+BREADCRUMB_QUERY_PATHS = ("/search", "/topic", "/explore")
+# パスごとの段の種類（表示の小さな印）
+BREADCRUMB_KINDS = {
+    "/collection": ("collection", "一覧"),
+    "/search": ("search", "検索"),
+    "/resource": ("resource", ""),
+    "/compare": ("compare", "比較"),
+    "/explore": ("explore", "探索"),
+    "/topic": ("topic", "トピック"),
+    "/graph": ("graph", "図"),
+    "/collections": ("saved", "保存"),
+}
+BREADCRUMB_TITLE_MAX = 40
+
+
+def breadcrumb_key(path, args):
+    """ページの対象を表すキー（パス＋対象を決める引数。並び順に依らない）"""
+    names = BREADCRUMB_IDENTITY + (("q",) if path in BREADCRUMB_QUERY_PATHS else ())
+    items = []
+    for name in names:
+        values = args.getlist(name) if hasattr(args, "getlist") else ([args[name]] if name in args else [])
+        items.extend((name, str(v)) for v in values if v not in (None, ""))
+    items.sort()
+    return path + ("?" + urlencode(items) if items else "")
+
+
+def shorten_crumb(text, limit=BREADCRUMB_TITLE_MAX):
+    text = " ".join(str(text or "").split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def make_breadcrumb(title, *, path=None, args=None, crumb_title=None, parent=None):
+    """パンくずリストの欄（経路は breadcrumb.js が埋める）。
+
+    title:       ページの見出し（crumb_title がないときの段の名前）
+    crumb_title: 段の名前（見出しより短い名前・ラベルを使うとき）
+    parent:      {"title", "href"} 所属するコレクションなど（リソースのページ）。JS がなくても表示する
+    path, args:  省略時は今のリクエストから
+    """
+    if path is None or args is None:
+        if not has_request_context():
+            return ""
+        path = request.path if path is None else path
+        args = request.args if args is None else args
+    kind, mark = BREADCRUMB_KINDS.get(path, ("other", ""))
+    name = shorten_crumb(crumb_title or title)
+    parent_html = ""
+    if parent and parent.get("href"):
+        parent_html = (f'<a class="kg-crumb-parent" href="{escape(parent["href"])}" '
+                       f'title="この種類のリソースの一覧">{escape(shorten_crumb(parent.get("title") or ""))} の一覧 ›</a>')
+    return (f'<nav class="kg-breadcrumb" aria-label="たどったページ" data-key="{escape(breadcrumb_key(path, args))}" '
+            f'data-title="{escape(name)}" data-kind="{escape(kind)}" data-mark="{escape(mark)}">'
+            f'<ol class="kg-crumbs"></ol>{parent_html}</nav>')
+
+
+def make_html(content, title="タイトル", navi="", libraries=None, category=None, crumb_title=None, crumb_parent=None):
+    """HTMLを組み立てる
+
+    crumb_title, crumb_parent: パンくずリストの段の名前と所属コレクション（make_breadcrumb）
+    """
     if libraries is None:
         libraries = []
     library_html = "".join(
@@ -277,6 +347,7 @@ def make_html(content, title="タイトル", navi="", libraries=None, category=N
         navi=navi,
         libraries=library_html,
         color=hash_color(category) if category else hash_color(title),
+        breadcrumb=make_breadcrumb(title, crumb_title=crumb_title, parent=crumb_parent),
     )
 
 def make_jsgrid(gridid, data, header, columns, height, paging=True, tree=None, interactive=False):

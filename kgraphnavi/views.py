@@ -10,6 +10,7 @@
 ##      FlaskのHTTPリクエストを受け、ページ生成を呼び出す
 """
 
+import json
 import logging
 import urllib.parse
 from werkzeug.exceptions import HTTPException
@@ -24,10 +25,12 @@ from .facets import request_params, facet_selection, SEARCH_PARAM, SEARCH_MODE_P
 from .app import BUILTIN_COLLECTION_PAGE, BUILTIN_SEARCH_PAGE, TYPE_FACET, expand_prefixed
 from .errors import KGraphError, SparqlError, CollectionError      # 作成した例外クラス
 from .collection import Collection
-from .terms import is_iri
+from .terms import is_iri, predicate_term
 from .saved import check_name, OPERATIONS
 from .topic import TopicBuilder, CommandTopicBuilder, render_topic, render_topic_progress, override_from_args
 from .compare import items_from_args, choose_view, sort_items, render_compare, COMPARE_MAX
+from .explore import Explorer, render_explore
+from .textlink import render_textlink, result_json
 logger = logging.getLogger(__name__)
 
 def render_page(
@@ -39,12 +42,15 @@ def render_page(
     page_title: str="",
     category: str | None = None,
     base_collection=None,
+    lead_html: str = "",
+    crumb_title: str | None = None,
+    crumb_parent: dict | None = None,
 ) -> Response:
     """
-    page名 と uri に対応するページを生成して返す。
+    page名 と uri に対応するページを生成して返す。lead_html はガジェットの前に置く HTML（探索グラフへのボタンなど）
     """
     frames = application.make_page(page_name, uri, params=params, base_collection=base_collection)
-    page_body = "\n".join(frames)
+    page_body = lead_html + "\n".join(frames)
     if page_name.startswith("_"):
         # 組み込みのページはページ名を出さない
         title = page_title or page_name
@@ -56,8 +62,72 @@ def render_page(
         navi=application.navi,
         libraries=["jsgrid", "cytoscape", "chartjs"],
         category=category or page_name,
+        crumb_title=crumb_title,
+        crumb_parent=crumb_parent,
     )
     return Response(html, mimetype="text/html")
+
+
+# --------------------------------------------------
+# パンくずリストの段の名前・所属コレクション（2026.11.9。表示は templates/js/breadcrumb.js）
+# --------------------------------------------------
+
+def collection_crumb_title(title, params, include_text=True):
+    """コレクションの段の名前: 見出しに絞り込みの条件を添える（例: CaseLawDocument［行政訴訟; 2000–2010］）。
+
+    同じクラスでも条件の違う一覧を経路の中で見分けられるようにする。IRI の値はローカル名で表す（問い合わせはしない）
+    """
+    parts = []
+    text = (params.get(SEARCH_PARAM) or "").strip() if include_text else ""
+    if text:
+        parts.append(f"「{text}」")
+    values, ranges = facet_selection(params)
+    for name, vals in values.items():
+        if name == TYPE_FACET:
+            continue
+        shown = [get_localname(v) if is_iri(v) else str(v) for v in vals]
+        if shown:
+            parts.append(",".join(shown))
+    for name, bounds in ranges.items():
+        low, high = (bounds or {}).get("min", ""), (bounds or {}).get("max", "")
+        if low or high:
+            parts.append(f"{low}–{high}")
+    return f"{title}［{'; '.join(parts)}］" if parts else title
+
+
+def resource_label(application, uri):
+    """リソースのラベル（label_predicate。label_lang の言語を優先）。無い・問い合わせに失敗したときは None"""
+    predicate = getattr(application, "label_predicate", None) or "rdfs:label"
+    try:
+        rows = application.sparql_client.query(
+            f"SELECT ?label WHERE {{ $uri {predicate_term(predicate)} ?label }} LIMIT 50", {"uri": uri})
+    except Exception as e:    # パンくずの名前のためにページを失敗させない
+        logger.info("パンくずのラベルを取得できない %s: %s", uri, e)
+        return None
+    labels = [(r["label"].get("value"), r["label"].get("xml:lang") or "") for r in rows if "label" in r]
+    labels = [(v, lang) for v, lang in labels if v]
+    if not labels:
+        return None
+    lang = (getattr(application, "label_lang", None) or "").lower()
+    for wanted in ([lang] if lang else []) + [""]:
+        for value, value_lang in labels:
+            if value_lang.lower() == wanted or (wanted and value_lang.lower().startswith(wanted + "-")):
+                return value
+    return labels[0][0]
+
+
+def resource_parent(application, rdftype):
+    """リソースの所属コレクション（その種類のコレクションのページが設定にあるときだけ）: {"title", "href"}"""
+    if not rdftype:
+        return None
+    try:
+        page = application.collection_page(str(rdftype))
+    except Exception as e:
+        logger.info("所属コレクションのページを決められない %s: %s", rdftype, e)
+        return None
+    if not page or page == BUILTIN_COLLECTION_PAGE:
+        return None
+    return {"title": get_localname(str(rdftype)), "href": "/collection?" + urlencode({"class": str(rdftype)})}
 
 class CollectionRequestError(Exception):
     """コレクションの URL の誤り"""
@@ -281,6 +351,7 @@ def init_app(app):
             page_title=info["page_title"],
             category=info["page_name"],
             base_collection=info["base_collection"],
+            crumb_title=collection_crumb_title(info["page_title"], info["params"], include_text=False),
         )
 
 # RDFエンティティのページ
@@ -312,6 +383,9 @@ def init_app(app):
             uristr,
             page_title=page_title,
             category=page_name,
+            lead_html=explore_button(application, uristr, uri_rdftypes),
+            crumb_title=resource_label(application, uristr) or page_title,
+            crumb_parent=resource_parent(application, uri_rdftype),
         )
 
 # RDFエンティティ集合のページ
@@ -339,6 +413,7 @@ def init_app(app):
             page_title=info["page_title"],
             category=info["page_name"],
             base_collection=info["base_collection"],
+            crumb_title=collection_crumb_title(info["page_title"], info["params"]),
         )
 
 # 保存したコレクション（2026.10.19）
@@ -414,9 +489,11 @@ def init_app(app):
                 if not is_iri(class_uri):
                     raise CollectionError(f"クラスとして使えない値です: {class_uri}")
             source = request.form.get("source", "")
+            # 探索グラフ（/explore）から保存したときは、source に探索の手順を含む URL が入る（2026.11.9）
+            selected_from = "explore" if request.form.get("selected_from") == "explore" else "graph"
             data = store.save(name, uris, source=source, class_uri=class_uri,
                               overwrite=bool(request.form.get("overwrite")),
-                              extra={"selected_from": "graph"})
+                              extra={"selected_from": selected_from})
         except CollectionError as e:
             return redirect("/collections?" + urlencode([("err", str(e))]))
         return redirect("/collection?" + urlencode([("saved", data["name"])]))
@@ -557,7 +634,162 @@ def init_app(app):
         html = make_html(body, title, navi=application.navi, libraries=["jsgrid", "chartjs"], category="_Compare")
         return Response(html, mimetype="text/html")
 
+# 探索グラフ（kgraphnavi/explore.py。2026.11.9）
+    def explore_button(application, uri, rdftypes):
+        """リソースのページの「このページから探索」（探索グラフの種類にあたるリソースだけ）"""
+        conf = getattr(application, "explore_config", None)
+        if not conf:
+            return ""
+        kind = Explorer(application.sparql_client, conf).kind_of_types(str(t) for t in rdftypes)
+        if not kind:
+            return ""
+        from html import escape
+        from urllib.parse import quote
+        return (f'<div class="kg-explore-entry"><a class="kg-explore-entry-button" href="/explore?uri={quote(uri, safe="")}" '
+                f'title="この{escape(kind)}を種にして、関係（件数つき）をたどる図を開きます">'
+                f'この{escape(kind)}から探索グラフで広げる ›</a></div>')
+
+    def explorer_or_none():
+        application = current_app.extensions["application"]
+        if not getattr(application, "explore_config", None):
+            return None
+        return Explorer(application.sparql_client, application.explore_config)
+
+    def json_response(body, status=200):
+        import json
+        return Response(json.dumps(body, ensure_ascii=False), status=status, mimetype="application/json")
+
+    @app.route("/explore", methods=["GET"])
+    def explore() -> Response:
+        """種（?q=語 または ?uri=…）から始める探索グラフ。手順は URL の #s=… に入る（画面が再現する）"""
+        application = current_app.extensions["application"]
+        explorer = explorer_or_none()
+        if explorer is None:
+            return error("探索グラフの設定がない", "設定ファイルに explore: を書いてください"), 404
+        q = (request.args.get("q") or "").strip()
+        notice = ""
+        seeds = []
+        try:
+            for uri in request.args.getlist("uri"):
+                if not is_iri(uri):
+                    raise ValueError(f"URI として使えない値です: {uri}")
+                node = explorer.node(uri)
+                if node["kind"] is None:
+                    notice = f"「{node['label']}」は探索グラフの種類（{'・'.join(explorer.kinds)}）にあたらないため、種にできません"
+                    continue
+                seeds.append(node)
+            if q:
+                found = explorer.seeds_from_text(q)
+                if not found:
+                    notice = f"「{q}」をラベルに含む、種にできるリソースは見つかりませんでした"
+                seeds.extend(found)
+        except ValueError as e:
+            return error("探索グラフを開けない", str(e)), 400
+        body = render_explore(explorer, seeds, q=q, notice=notice, can_save=application.saved_store is not None,
+                              save_max=application.saved_max)
+        title = explorer.settings["title"] + (f": {q}" if q else "")
+        html = make_html(body, title, navi=application.navi, libraries=["jsgrid", "cytoscape"], category="_Explore")
+        return Response(html, mimetype="text/html")
+
+    @app.route("/explore/node", methods=["GET"])
+    def explore_node() -> Response:
+        """ノードの情報と、広げられる関係ごとの件数（JSON）"""
+        explorer = explorer_or_none()
+        if explorer is None:
+            return json_response({"error": "探索グラフの設定がありません"}, 404)
+        uri = request.args.get("uri", "")
+        try:
+            node = explorer.node(uri, request.args.get("kind") or None)
+            relations = explorer.counts(uri, node["kind"]) if node["kind"] else []
+        except ValueError as e:
+            return json_response({"error": str(e)}, 400)
+        except SparqlError as e:
+            return json_response({"error": e.message}, 502)
+        return json_response({"node": node, "relations": relations})
+
+    @app.route("/explore/expand", methods=["GET"])
+    def explore_expand() -> Response:
+        """関係の先のノードと辺（JSON）"""
+        explorer = explorer_or_none()
+        if explorer is None:
+            return json_response({"error": "探索グラフの設定がありません"}, 404)
+        try:
+            result = explorer.expand(request.args.get("uri", ""), request.args.get("rel", ""),
+                                     offset=int(request.args.get("offset") or 0),
+                                     limit=int(request.args.get("limit") or 0) or None)
+        except ValueError as e:
+            return json_response({"error": str(e)}, 400)
+        except SparqlError as e:
+            return json_response({"error": e.message}, 502)
+        return json_response(result)
+
 # グラフのページ
+    @app.route("/textlink", methods=["GET", "POST"])
+    def textlink() -> Response:
+        """貼り付けたテキストの判例の引用を、判例のページへのリンクにする画面（設定 textlink:。2026.11.10）"""
+        application = current_app.extensions["application"]
+        linker = application.textlinker
+        if linker is None:
+            return error("テキストのリンクの設定がない", "設定ファイルに textlink: を書いてください"), 404
+        cfg = linker.cfg
+        text = request.values.get("text") or ""
+        mc = request.values.get("min_confidence") or cfg["min_confidence"]
+        items, meta, message, status = None, None, "", 200
+        if text.strip():
+            try:
+                items = linker.run(text, mc)
+                meta = linker.meta
+            except ValueError as e:
+                message, status = str(e), 400
+            except Exception as e:      # 索引が無い・モジュールが無いなど
+                logger.exception("textlink")
+                message, status = f"リンクを付けられません: {e}", 500
+        body = render_textlink(cfg, text, items, meta, mc, message, linker.labels)
+        html = make_html(body, cfg["title"], navi=application.navi, libraries=[], category="_TextLink")
+        return Response(html, status=status, mimetype="text/html")
+
+    @app.route("/api/textlink", methods=["GET", "POST", "OPTIONS"])
+    def api_textlink() -> Response:
+        """Web API。POST: JSON {"text": …, "min_confidence": "中"}（またはフォーム）、GET: ?text=…&min_confidence=…
+        → {"length", "citations", "linked", "index", "items": [{start, end, text, linked, target, ecli, key, …}]}。
+        target・id_uri は判例のリソースの URI。KGraphNavi のページは /resource?uri=<target>"""
+        application = current_app.extensions["application"]
+        linker = application.textlinker
+
+        def reply(obj, status=200):
+            res = Response(json.dumps(obj, ensure_ascii=False), status=status, mimetype="application/json")
+            if linker is not None and linker.cfg.get("cors"):
+                res.headers["Access-Control-Allow-Origin"] = str(linker.cfg["cors"])
+                res.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+                res.headers["Access-Control-Allow-Headers"] = "Content-Type"
+            return res
+
+        if linker is None:
+            return reply({"error": "設定ファイルに textlink: がありません"}, 404)
+        if request.method == "OPTIONS":
+            return reply({})
+        data = request.get_json(silent=True) if request.is_json else None
+        if data is None:
+            data = request.values
+        elif not isinstance(data, dict):
+            return reply({"error": "JSON はオブジェクト {\"text\": …} で送ってください"}, 400)
+        text = data.get("text")
+        if not isinstance(text, str) or not text:
+            return reply({"error": "text（テキスト）がありません"}, 400)
+        try:
+            items = linker.run(text, data.get("min_confidence") or None)
+            meta = linker.meta
+        except ValueError as e:
+            return reply({"error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("api/textlink")
+            return reply({"error": f"リンクを付けられません: {e}"}, 500)
+        base = request.host_url.rstrip("/")
+        for x in items:
+            if x.get("target"):
+                x["page"] = base + "/resource?" + urllib.parse.urlencode({"uri": x["target"]})
+        return reply(result_json(items, meta, len(text)))
+
     @app.route("/graph", methods=["GET"])
     def graph() -> Response:
         """KG全体を対象とするGraphページ（type: graph の最初のページ）を表示する。"""

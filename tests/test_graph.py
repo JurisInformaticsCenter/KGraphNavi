@@ -525,3 +525,49 @@ def test_graph_save_info():
     info = application.graph_save_info({"select_class": "caselawo:CaseLawDocument"}, params)
     assert info["class"] == CLASS and info["max"] == 500 and info["source"] == "/collection?class=caselawo%3ATrial&tab=4"
     assert application.graph_save_info({}, params)["class"] == "http://ds.rois.ac.jp/caselaw/ontology/Trial"
+
+
+# ---- 形・色・大きさ（show.encode・nodes.attrs・nodes.shape。2026.11.9）----
+
+def test_attrs_shapes_and_encode_options():
+    from kgraphnavi.graph import graph_payload
+    show = {
+        "type": "graph",
+        "edges": [{"from": "entity", "to": "article", "directed": False}],
+        "nodes": {
+            "entity": {"label": "label", "kind": "判例", "x": "year", "attrs": {"procedure": "proc"}},
+            "article": {"label": "alabel", "kind": "条", "shape": "diamond"},
+        },
+        "encode": {"color": ["kind", "procedure", "nope"], "labels": {"procedure": "手続"}},
+    }
+    validate_graph_show("G", show)
+    rows = [
+        {"entity": uri(DOC + "A"), "label": lit("A"), "year": lit(2001), "proc": lit("民事訴訟"),
+         "article": uri(DOC + "c1"), "alabel": lit("709条")},
+        {"entity": uri(DOC + "B"), "label": lit("B"), "year": lit(2005), "proc": lit("行政訴訟"),
+         "article": uri(DOC + "c1"), "alabel": lit("709条")},
+    ]
+    graph = build_graph(rows, show)
+    payload = graph_payload(graph)
+    data = {e["data"]["id"]: e["data"] for e in payload["elements"] if "source" not in e["data"] and not e["data"].get("axis")}
+    assert data[DOC + "A"]["a_procedure"] == "民事訴訟" and data[DOC + "A"]["shape"] == "ellipse"
+    assert data[DOC + "c1"]["shape"] == "diamond" and data[DOC + "c1"]["m_degree"] == 2
+    enc = payload["encode"]
+    assert [c["name"] for c in enc["color"]] == ["kind", "procedure"]      # 無い名前は除く
+    assert enc["color"][1]["label"] == "手続" and enc["colorDefault"] == "kind"
+    assert "degree" in [s["name"] for s in enc["size"]]
+    assert enc["colors"]["kind"]["判例"].startswith("#")
+
+
+@pytest.mark.parametrize("node, encode", [
+    ({"label": "l", "attrs": {"a-b": "x"}}, None),
+    ({"label": "l", "shape": "cloud"}, None),
+    ({"label": "l"}, {"color": "kind"}),
+    ({"label": "l"}, {"unknown": 1}),
+])
+def test_validate_encode_errors(node, encode):
+    show = {"type": "graph", "edges": [{"from": "entity", "to": "cited"}], "nodes": {"entity": node}}
+    if encode is not None:
+        show["encode"] = encode
+    with pytest.raises(ConfigError):
+        validate_graph_show("G", show)

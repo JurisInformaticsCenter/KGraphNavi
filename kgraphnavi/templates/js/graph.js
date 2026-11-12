@@ -17,10 +17,12 @@
     }
 
     function stylesheet(payload) {
-        var size = nodeSize(payload.size_range);
+        // 色・大きさは encode.js が付ける data(_color)・data(_size)、形は種類ごとの data(shape)（2026.11.9）
+        var size = window.kgEncode ? "data(_size)" : nodeSize(payload.size_range);
+        var color = window.kgEncode ? "data(_color)" : "data(color)";
         return [
             { selector: "node", style: {
-                "background-color": "data(color)", "width": size, "height": size,
+                "background-color": color, "width": size, "height": size, "shape": "data(shape)",
                 "border-width": 1, "border-color": "#ffffff", "label": "",
                 "font-size": 10, "color": "#1e293b", "text-valign": "bottom", "text-margin-y": 3,
                 "text-background-color": "#ffffff", "text-background-opacity": 0.75, "text-background-padding": 1,
@@ -37,7 +39,7 @@
             } },
             // 範囲選択で選んだノード
             { selector: "node:selected", style: {
-                "background-color": "data(color)", "border-color": "#f59e0b", "border-width": 4, "label": "data(short)"
+                "background-color": color, "border-color": "#f59e0b", "border-width": 4, "label": "data(short)"
             } },
             { selector: "edge:selected", style: { "line-color": "#cbd5e1", "target-arrow-color": "#94a3b8" } },
             { selector: "node.focus", style: { "border-color": "#0f172a", "border-width": 3, "z-index": 20 } },
@@ -273,10 +275,11 @@
         nodes.forEach(function (n) {
             var p = n.position(), r = n.width() / 2;
             var opacity = parseFloat(n.style("opacity"));
-            out.push('<circle cx="' + num(p.x) + '" cy="' + num(p.y) + '" r="' + num(r) + '" fill="' + n.style("background-color") +
+            var attrs = ' fill="' + n.style("background-color") +
                      '" stroke="' + n.style("border-color") + '" stroke-width="' + (parseFloat(n.style("border-width")) || 0) + '"' +
                      (n.hasClass("outside") ? ' stroke-dasharray="3,2" fill-opacity="0.6"' : "") +
-                     ' opacity="' + (isNaN(opacity) ? 1 : opacity) + '"/>');
+                     ' opacity="' + (isNaN(opacity) ? 1 : opacity) + '"/>';
+            out.push(svgShape(n.data("shape"), p.x, p.y, r, num) + attrs);
         });
         nodes.union(axis).forEach(function (n) {
             var label = n.style("label");
@@ -293,6 +296,26 @@
         });
         out.push("</svg>");
         return new Blob([out.join("\n")], { type: "image/svg+xml" });
+    }
+
+    // ノードの形の SVG の要素（閉じる前まで）。形は encode.js の種類ごとの形
+    function svgShape(shape, x, y, r, num) {
+        function poly(points) {
+            return '<polygon points="' + points.map(function (p) { return num(x + p[0] * r) + "," + num(y + p[1] * r); }).join(" ") + '"';
+        }
+        switch (shape) {
+        case "round-rectangle": case "rectangle": case "barrel":
+            return '<rect x="' + num(x - r) + '" y="' + num(y - r) + '" width="' + num(2 * r) + '" height="' + num(2 * r) +
+                   '" rx="' + (shape === "rectangle" ? 0 : num(r / 3)) + '"';
+        case "diamond": return poly([[0, -1], [1, 0], [0, 1], [-1, 0]]);
+        case "triangle": case "round-triangle": return poly([[0, -1], [1, 0.8], [-1, 0.8]]);
+        case "hexagon": return poly([[-0.5, -0.87], [0.5, -0.87], [1, 0], [0.5, 0.87], [-0.5, 0.87], [-1, 0]]);
+        case "tag": return poly([[-1, -0.7], [0.4, -0.7], [1, 0], [0.4, 0.7], [-1, 0.7]]);
+        case "vee": return poly([[-1, -1], [0, -0.3], [1, -1], [0, 1]]);
+        case "star": return poly([[0, -1], [0.24, -0.31], [0.95, -0.31], [0.38, 0.12], [0.59, 0.81], [0, 0.38],
+                                  [-0.59, 0.81], [-0.38, 0.12], [-0.95, -0.31], [-0.24, -0.31]]);
+        default: return '<circle cx="' + num(x) + '" cy="' + num(y) + '" r="' + num(r) + '"';
+        }
     }
 
     function exportGraph(cy, kind, title) {
@@ -375,6 +398,47 @@
         }
     }
 
+    // 色・大きさの切り替えと凡例（templates/js/encode.js。2026.11.9）
+    function setupEncoding(cy, payload, wrap) {
+        var opts = payload.encode;
+        var encoder = new window.kgEncode.Encoder(opts);
+        var legendEl = wrap ? wrap.querySelector(".kg-graph-legend") : null;
+        var highlighted = null;
+        function redraw() {
+            var legend = encoder.apply(cy);
+            cy.style().update();
+            window.kgEncode.renderLegend(legendEl, legend, { filterable: true });
+            highlighted = null;
+        }
+        redraw();
+        var tools = wrap ? wrap.querySelector(".kg-graph-encode") : null;
+        if (tools) {
+            var c = window.kgEncode.selectBox("色", opts.color, encoder.colorName, function (v) { encoder.colorName = v; redraw(); });
+            var s = window.kgEncode.selectBox("大きさ", opts.size, encoder.sizeName, function (v) { encoder.sizeName = v; redraw(); });
+            if (c) { tools.appendChild(c); }
+            if (s) { tools.appendChild(s); }
+        }
+        if (legendEl) {
+            // 凡例の値をクリックすると、その値のノードだけを強調する（もう一度クリックで戻す）
+            legendEl.addEventListener("click", function (event) {
+                var item = event.target.closest ? event.target.closest("[data-legend-value]") : null;
+                if (!item) { return; }
+                var value = item.getAttribute("data-legend-value");
+                cy.elements().removeClass("faded neighbor focus");
+                legendEl.querySelectorAll("[data-legend-value]").forEach(function (el) { el.classList.remove("active"); });
+                if (highlighted === value) { highlighted = null; return; }
+                highlighted = value;
+                item.classList.add("active");
+                var hit = cy.nodes().not(".axis").filter(function (n) {
+                    return String(window.kgEncode.valueOf(n, encoder.colorName)) === value;
+                });
+                cy.elements().not(".axis").addClass("faded");
+                hit.union(hit.edgesWith(hit)).removeClass("faded").addClass("neighbor");
+            });
+        }
+        return encoder;
+    }
+
     window.kgDrawGraph = function (id) {
         var container = document.getElementById(id);
         var source = document.getElementById(id + "-data");
@@ -386,6 +450,13 @@
         }
         var payload = JSON.parse(source.textContent);
         var positions = payload.positions || {};
+        payload.elements.forEach(function (el) {
+            if (el.data && el.data.source === undefined) {
+                el.data._color = el.data.color || "#ffffff";    // 年の目盛り（axis）は色を持たない
+                el.data._size = el.data.axis ? 1 : 22;
+                el.data.shape = el.data.shape || "ellipse";
+            }
+        });
         var cy = window.cytoscape({
             container: container,
             elements: payload.elements,
@@ -398,6 +469,10 @@
             selectionType: "single"
         });
         cy.nodes(".axis").unselectify();
+        var wrap0 = container.closest(".kg-graph-wrap");
+        if (window.kgEncode && payload.encode) {
+            setupEncoding(cy, payload, wrap0);
+        }
         function setArcs(layout) {
             if (layout === "timeline") { cy.edges().addClass("arc"); } else { cy.edges().removeClass("arc"); }
             if (layout === "bipartite") { cy.nodes(".top").addClass("tilted"); } else { cy.nodes(".top").removeClass("tilted"); }

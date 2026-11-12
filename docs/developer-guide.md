@@ -44,9 +44,11 @@ kgraphnavi/
 ├── saved.py         名前を付けて保存したコレクション（JSON ファイル）
 ├── compare.py       並べて比べる（/compare）
 ├── topic.py         キーワードからトピックのコレクション（/topic）
+├── explore.py       探索グラフ（/explore）: 設定 explore:、ノードの種類、関係ごとの件数・広げる問い合わせ、画面
 ├── errors.py        例外クラス
 ├── misc.py          補助関数
-└── templates/       HTML テンプレート、CSS、JavaScript（js/busy.js: 実行中の表示、js/graph.js: ネットワーク図）
+└── templates/       HTML テンプレート、CSS、JavaScript（js/busy.js: 実行中の表示、js/graph.js: ネットワーク図、
+                     js/encode.js: 形・色・大きさと凡例（graph.js・explore.js で共通）、js/explore.js: 探索グラフ）
 tests/               pytest のテスト（SPARQL エンドポイントには接続しない）
 config/              設定ファイル（dbpedia.yaml はサンプル）
 docs/                文書
@@ -80,6 +82,9 @@ docs/                文書
 | `POST /collections/save_uris` | `save_selected_uris` | ネットワーク図で選んだ URI（`uris`）をそのまま保存し、`/collection?saved=` へ |
 | `POST /collections/merge` / `delete` | | 和・積・差でまとめる、消す |
 | `/compare` | `compare` | 並べて比べる（`compare.py`） |
+| `/explore` | `explore` | 探索グラフの画面（`explore.py` の `render_explore`）。`?q=` は `Explorer.seeds_from_text`、`?uri=` は `Explorer.node` で種を作る |
+| `/explore/node` | `explore_node` | ノードの情報と関係ごとの件数（JSON。`Explorer.node`・`Explorer.counts`） |
+| `/explore/expand` | `explore_expand` | 関係の先のノードと辺（JSON。`Explorer.expand`。種類の `info` で名前・属性をまとめて付ける `Explorer.enrich`） |
 | `/topic` | `topic` | キーワードからトピック（`topic.py`） |
 | `/data/<path>` | `getfile` | `data_dirs` / `data_dir` から `send_from_directory` |
 | `/<名前>/<path>` | `getstatic` | `static_dirs` から `send_from_directory` |
@@ -163,6 +168,7 @@ SPARQL の行
 ```
 
 - 年で並べる・2段に並べる配置はサーバで位置を計算し（`payload.positions`）、ブラウザでは Cytoscape.js の `preset` で置きます。力学モデル・円・格子は Cytoscape.js の配置です。
+- 形・色・大きさは `encode.js` の `kgEncode.Encoder` が付けます（ノードの data の `kind`・`shape`・`x`・`a_<属性>`・`m_<指標>` から `_color`・`_size` を作る。スタイルシートは `data(_color)`・`data(_size)`・`data(shape)`）。サーバは `graph_payload` の `encode`（選択肢と既定）を渡すだけで、色の割り当ては画面で行います（探索グラフで広げても色が変わらないように）。
 - `graph.js` は、右の欄、配置の切り替え、範囲選択（`boxSelectionEnabled`、「範囲を選ぶ」では `userPanningEnabled(false)`）、選んだノードの保存のフォーム（`/collections/save_uris`）、書き出し（PNG は `cy.png()`、SVG・CSV・GraphML は自前で作る）を受け持ちます。
 - Cytoscape.js は `makehtml.LIBRARIES["cytoscape"]` で `cdn.jsdelivr.net/npm/cytoscape@3` から読み込みます。
 
@@ -246,12 +252,3 @@ pytest
 - `kgraphnavi -d INFO …` で、ガジェットの最終的な SPARQL（`extract_sparql: final query=`）がログに出ます。`-d DEBUG` では結果やセルの内容も出ます。
 - `--dev` で Flask のデバッガと自動再読み込みが有効になります。
 - 画面の表示がおかしいときは、(1) ページの選択（`rdf:type` と `priority`）、(2) ログの SPARQL をエンドポイントで直接実行した結果、(3) 列の定義（`columns` の `id` と変数名）の順に確かめます。
-
-## 7. 既知の問題
-
-| 問題 | 場所 |
-| --- | --- |
-| ガジェットのパス指定 `Gadget(プロパティ)` が、ページの検証（`validate_pages`）で未定義のガジェットとして拒否される。`make_gadget()` には `move_focus()` で対応する処理がある | `app.py` `setconfig.validate_pages` |
-| `setconfig()` 内の `validate_gadget_config()` は定義されているが呼ばれていない（`show.type: graph` と `get.max_rows` の検証は、呼ばれる箇所に移した） | `app.py` |
-| ネットワーク図の書き出し（SVG）は Cytoscape.js の描画をそのまま写したものではなく、円・直線（または弧）・名前で描き直したもの。矢印の位置などは画面と少し違う | `templates/js/graph.js` |
-| `get.values` に未知の関数を書くと、例外にならず `error()`（エラー画面の HTML を返す関数）を呼ぶだけで処理が続く | `app.py` `Gadget._apply_values` |

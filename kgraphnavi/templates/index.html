@@ -88,4 +88,8 @@
   </ul>
   {% endif %}
 </div>
+<script>
+// トップに来たら、パンくずリストの経路をはじめからにする（templates/js/breadcrumb.js。2026.11.9）
+try { window.sessionStorage.removeItem("kgTrail"); } catch (e) {}
+</script>
 {% endblock %}

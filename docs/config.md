@@ -61,6 +61,7 @@ KGraphNavi の設定ファイルに書けるすべての項目の一覧です。
 | `sparql_endpoint` | `http://localhost:8890/sparql` | SPARQL エンドポイントの URL。コマンドラインの `-e`（または環境変数 `KGRAPHNAVI_ENDPOINT`）が優先 |
 | `prefixes` | （なし） | 接頭辞の辞書 `{接頭辞: 名前空間IRI}`。すべての SPARQL の先頭に `PREFIX` として付き、ページの `type` / `class` の接頭辞付きの名前の展開にも使う。`rdf` `rdfs` `xsd` `owl` は書かなくても使える |
 | `label` | `rdfs:label` | リソースの名前を表すプロパティ。検索（`/search`）と組み込みのコレクションのページで使う。コマンドラインの `-l` が優先 |
+| `search_label` | `label` と同じ | 検索（`/search`）で見るラベルのプロパティ（プロパティパスも可）。例 `rdfs:label\|skos:altLabel` で異表記・別名でも引ける |
 | `label_lang` | （なし） | 組み込みのコレクションのページで優先するラベルの言語（例 `en`）。その言語のラベルがなければ他のラベルを使う |
 | `priority` | （なし） | リソースに `rdf:type` が複数あるときに、ページを選ぶクラスの優先順のリスト。**完全な IRI で書く**（接頭辞は展開しない）。リストにないクラスはリストのクラスより後になる |
 | `sample` | （なし） | トップ画面のサンプル（下記） |
@@ -70,9 +71,11 @@ KGraphNavi の設定ファイルに書けるすべての項目の一覧です。
 | `data_dirs` | （なし） | `/data/<名前>/<path>` で配信するフォルダの辞書 `{名前: フォルダ}`。`data_dir` とは別に、名前ごとにフォルダを置ける |
 | `saved_collections_dir` | 設定ファイルのフォルダの `saved_collections` | 名前を付けて保存したコレクションのフォルダ（collection.md） |
 | `saved_collection_max` | 10000 | 保存できるコレクションの要素の数の上限 |
-| `static_dirs` | （なし） | `/<名前>/<path>` で配信するフォルダの辞書 `{名前: フォルダ}`。`/data/` の外を相対パスで参照するファイル（判決HTMLの `../../css/hanrei.css` など）に使う。`templates`・`data`・`resource`・`collection`・`search`・`graph` は名前に使えない |
+| `static_dirs` | （なし） | `/<名前>/<path>` で配信するフォルダの辞書 `{名前: フォルダ}`。`/data/` の外を相対パスで参照するファイル（判決HTMLの `../../css/hanrei.css` など）に使う。`templates`・`data`・`resource`・`collection`・`search`・`graph`・`explore`・`textlink`・`api` は名前に使えない |
 | `frontend_base_url` | `/` | 画面上端のアプリケーション名のリンク先 |
 | `rdfstore` | （なし） | RDF ストアの種類（例 `virtuoso`）。記録用で、現在の動作には影響しない |
+| `explore` | （なし） | 探索グラフ（`/explore`）のノードの種類と広げる関係（[探索グラフ](explore.md#4-設定explore)）。書くと画面上端に「探索」が出る |
+| `textlink` | （なし） | テキストの参照をリンクにする画面（`/textlink`）と Web API（`/api/textlink`）。`module`（`make_linker` を持つモジュール）・`path`・`index`・`title`・`min_confidence`・`max_chars`・`cors`・`options`・`labels`（画面の文言）（[テキストにリンクを付ける](textlink.md#設定textlink)）。書くと画面上端に入り口が出る。組み込みのリンカ `kgraphnavi.labellinker`（ラベルの辞書）がある |
 
 ### `sample`（トップ画面のサンプル）
 
@@ -89,7 +92,7 @@ KGraphNavi の設定ファイルに書けるすべての項目の一覧です。
 
 `collection` にコレクションのページの名前を書くと `/collection?view=<ページ名>`、それ以外は `/collection?class=<クラス>` へのリンクになります。
 
-見出しごとにまとめるときは `sections` を使います（2026.11.8）。トップ画面に見出し・説明つきのカードとして並び、
+見出しごとにまとめるときは `sections` を使います。トップ画面に見出し・説明つきのカードとして並び、
 各カードの中は コレクション（「一覧」の印）→ 検索語（「検索」の印）→ リソース の順になります。
 `search`・`resource`・`collection` の書き方は上と同じです。`sections` と上の3つは併用でき、上の3つは従来どおりカードの下に出ます。
 
@@ -127,7 +130,7 @@ KGraphNavi の設定ファイルに書けるすべての項目の一覧です。
 | `name` | ○ | ページの名前（`_` で始まる名前は組み込み用なので使えない）。画面のタイトルにも出る |
 | `type` | ○ | ページの種類（上の表） |
 | `gadget` | △ | 上から順に表示するガジェットの名前のリスト。`tabs` とどちらかが必要 |
-| `tabs` | △ | タブのリスト。各タブは `{label: タブの名前, gadget: [ガジェット名, …], lazy: true/false}`。選んだタブは URL の `tab=<番号>`（0始まり）に残る。`lazy: true` のタブは選ばれたときだけ計算し、ボタンはページを読み直すリンクになる（順位表など重いもの。2026.10.20） |
+| `tabs` | △ | タブのリスト。各タブは `{label: タブの名前, gadget: [ガジェット名, …], lazy: true/false}`。選んだタブは URL の `tab=<番号>`（0始まり）に残る。`lazy: true` のタブは選ばれたときだけ計算し、ボタンはページを読み直すリンクになる（順位表など重いもの） |
 | `sidebar` | | 左の列に置くガジェットのリスト（ファセットなど）。`gadget` / `tabs` の横に表示し、タブを切り替えても共通 |
 | `query` | | `type: collection` のページで、コレクションを定義する SPARQL（`?uri` を返す SELECT。`PREFIX` は書かない） |
 | `class` | | `type: collection` のページが対象とする RDF クラス（文字列またはリスト） |
@@ -162,7 +165,7 @@ KGraphNavi の設定ファイルに書けるすべての項目の一覧です。
 | `variants` | | | 画面で切り替える問い合わせ・表示（下記） |
 | `focus` | | | 問い合わせる前に、表示中のリソース `$uri` から移る先 `?new` を求める SPARQL のパターン（下記） |
 
-### `focus`（別のリソースについてのガジェットを出す。2026.11.5）
+### `focus`（別のリソースについてのガジェットを出す）
 
 `$uri` から `?new` を求めるパターンを書くと、`?new` を `$uri` にしてガジェットを問い合わせます。
 `$uri` 自身が `?new` の候補にあればそのまま、候補が無ければ「該当するデータがありません」になります。
@@ -177,7 +180,7 @@ KGraphNavi の設定ファイルに書けるすべての項目の一覧です。
 
 コレクションのボタン（`collection.facet`）も、移った先のリソースで絞り込みます。
 
-### `variants`（画面で問い合わせ・表示を切り替える。2026.10.28）
+### `variants`（画面で問い合わせ・表示を切り替える）
 
 ガジェットの上に切り替えのボタンを出し、選んだものの `get` / `show` を元の設定に重ねて表示します（項目ごとに置き換え）。既定は最初のもの。選んだものは URL の `v.<ガジェット名>=<name>` に残ります。
 
@@ -289,7 +292,7 @@ get:
 
 値は文字列として表示します。リンクにするときは、列の `href`（`href: "?url"`）や `type: directlink` を使います。
 
-### `rank`（順位表。2026.10.20）
+### `rank`（順位表）
 
 コレクションの要素を、ファセットの値ごとに数えて多い順に並べます（ファセットと同じ数え方。上位で切らずにページを送れます）。コレクションのページ（のタブ）に置きます。
 
@@ -305,7 +308,7 @@ get:
     list_tab: 0                # 件数のリンク先のタブ（要素の一覧のタブ）
     detail: |                  # 値の属性の列。$values がそのページの値の VALUES ?value { … } になる
         SELECT ?value ?court WHERE { $values ?value caselawp:id ?id . … }
-    measure: count             # count（件数。既定）/ ratio（件数 ÷ 分母の大きい順。2026.10.21）
+    measure: count             # count（件数。既定）/ ratio（件数 ÷ 分母の大きい順）
     denominator: |             # measure: ratio のときの分母。?value と ?denominator を返す SELECT（コレクションの条件は掛からない）
         SELECT ?value (COUNT(DISTINCT ?t) AS ?denominator) WHERE { ?t caselawp:judge/caselawp:person ?value } GROUP BY ?value
     min_denominator: 20        # 分母がこれより小さい値は除く（少ない分母で比が大きく出るのを避ける）
@@ -348,7 +351,7 @@ get:
 
 ### `htable`
 
-表の操作（2026.10.22）: 見出しをクリックすると、その列で並べ替える（数だけの列は数として、ほかは日本語の順）。
+表の操作: 見出しをクリックすると、その列で並べ替える（数だけの列は数として、ほかは日本語の順）。
 見出しの右端をドラッグすると列の幅を変えられる。表の中でページ送りする表（KGraphNavi 側でページ送りしない表）には、
 見出しの下に列ごとの検索欄（その文字を含む行だけにする）と、表の上に件数（絞り込んだときは「n 件（全 m 件）」）が付く。
 KGraphNavi 側でページ送りするコレクションの一覧は、そのページの行しか持たないので、検索欄と件数は付けない（件数はページの上に出る）。
@@ -411,7 +414,7 @@ show:
 
 `chart` には Chart.js のグラフの種類を書きます（`bar` と `pie` を想定しています）。
 
-### `graph`（ネットワーク図。2026.10.28）
+### `graph`（ネットワーク図）
 
 `get.type: sparql` の結果の行を辺として読み、ノードと辺の図を描きます。コレクションのページでは `$collection` で、絞り込んだコレクションの図になります。
 
@@ -514,7 +517,13 @@ show:
 
 範囲選択と保存: 「範囲を選ぶ」を押すと（または Shift を押しながら）、図の上をドラッグで囲んだノードを選べます（「範囲を選ぶ」の間はクリックで1つずつ加える・外すこともできます）。2つ以上を選ぶと図の上に欄が出て、選んだうちのコレクションの要素（`in_collection` の側。判例など）に名前を付けて保存し、そのコレクションを開けます（`POST /collections/save_uris`。設定 `saved_collections_dir` があるとき）。2〜4件なら「並べて比べる」（`/compare`）も出ます。
 
-書き出し: 「書き出し」から、画像（PNG・SVG）、辺の一覧（CSV。source・target・重み・向き）、ノードの一覧（CSV。種類・年・被参照数・PageRank・連結成分）、GraphML（Gephi などで開ける）を保存できます。いずれも今の図に出ているノード・辺です。CSV は Excel で開けるよう BOM 付きの UTF-8 です。
+書き出し: 「書き出し」から、画像（PNG・SVG）、辺の一覧（CSV。source・target・重み・向き）、ノードの一覧（CSV。種類・年・被参照数・PageRank・連結成分）、GraphML（Gephi などで開ける）を保存できます。いずれも今の図に出ているノード・辺です。CSV は Excel で開けるよう BOM 付きの UTF-8 です。SVG は画面の図を円・線・名前で描き直したもので、矢印の位置などが画面と少し違います。
+
+形・色・大きさ: ノードの形は種類ごと（`nodes.<変数>.shape`。省略時は種類の順に ellipse・round-rectangle・diamond…）、
+色と大きさは図の上の「色」「大きさ」で切り替えます。色には種類・年・連結成分と、`nodes.<変数>.attrs: {名前: 変数}` で付けた
+属性（手続・審級など）を、大きさにはつながりの数・PageRank などを使えます。選択肢は `encode` で決めます
+（`encode: {color: [kind, procedure, year], size: [degree, pagerank], labels: {procedure: 手続}, color_default: kind}`）。
+凡例の値をクリックすると、その値のノードだけを強調します。詳しくは [探索グラフと見た目の割り当て](explore.md#5-ネットワーク図show-type-graphの見た目の割り当て)。
 
 画面では、ノードをクリックすると右の欄に詳しい情報（参照している・されている判例の一覧、向きのない辺ではつながるノードを種類ごとに）を出し、つながるノードを強調します。ダブルクリックでそのリソースのページを開きます。
 
@@ -554,7 +563,7 @@ show:
 | `label` | `id` | 見出し（`vtable` では属性の名前） |
 | `type` | `literal` | 値の種類（下表） |
 | `width` | 600（`image` は 120） | 列の幅（px）。`image` では画像の幅 |
-| `display` | | `localname` なら、IRI をローカル名（最後の `/` や `#` の後ろ）で表示する。`duration` なら xsd:duration を「2年6月」「30日」に、`number` なら数を「30,000」に、`months` なら月数を「2年6月」に、`days` なら「110日」に、`yen` なら「3,000,000円」にする（2026.11.7） |
+| `display` | | `localname` なら、IRI をローカル名（最後の `/` や `#` の後ろ）で表示する。`duration` なら xsd:duration を「2年6月」「30日」に、`number` なら数を「30,000」に、`months` なら月数を「2年6月」に、`days` なら「110日」に、`yen` なら「3,000,000円」にする |
 | `string` | | 表示する文字列。`?変数` / `?{変数}` を結果の値で置き換える（例 `"?label（?year）"`） |
 | `link` | | 変数名。その変数のリソースのページへのリンクにする（表示は `id` の値）。その変数に値がなければリンクにしない |
 | `href` | | リンク先。`?変数` ならその値、変数を含む文字列なら置き換えたもの |
